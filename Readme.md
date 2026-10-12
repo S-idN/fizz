@@ -1,7 +1,9 @@
 #Fizz - System Wide Fuzzy Search!
 
-#V1
+#Quick Temp Demo
+- ![Descriptive Alt Text]("./assets/FirefoxDemoV1.png")
 
+#V1
 - I cannot speak to this thing's reliability but it seems to work on my PC™ for now (Arch btw)
 
 #Prerequisites
