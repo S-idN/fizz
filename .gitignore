@@ -1,4 +1,17 @@
 main
 tests/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+fizz-daemon
+fizz-search
+main_gui
 
 .fizz*
+imgui.ini
+.DS_Store
+.vscode/
+.idea/

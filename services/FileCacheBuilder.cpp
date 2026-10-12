@@ -43,13 +43,10 @@ void runDebouncedDaemon() {
     pfd.events = POLLIN;
 
     char buffer[BUF_LEN];
-    std::cout << "[DAEMON] Event-driven indexer running. Monitoring for changes...\n";
 
     while (true) {
         int pollRet = poll(&pfd, 1, -1); 
         if (pollRet <= 0) continue;
-
-        std::cout << "[DAEMON] Change detected. Debouncing bulk operations...\n";
 
         while (true) {
             int nestedPoll = poll(&pfd, 1, 2000); 
@@ -61,12 +58,9 @@ void runDebouncedDaemon() {
             }
         }
 
-        std::cout << "[DAEMON] Activity settled. Rebuilding binary cache cache...\n";
-        
         systemFileSearch(homePath.c_str()); 
         createInvertedSearchIndex();
         
-        std::cout << "[DAEMON] Cache updated successfully. Going back to sleep.\n";
     }
 
     close(fd);
@@ -76,7 +70,6 @@ int main() {
     const char* homeDir = std::getenv("HOME");
     std::string homePath = (homeDir != nullptr) ? homeDir : "/";
 
-    std::cout << "[DAEMON] Performing startup cache initialization...\n";
     systemFileSearch(homePath.c_str());
     createInvertedSearchIndex();
 
