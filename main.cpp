@@ -1,30 +1,17 @@
 #include <iostream>
-#include "services/FileSearch.h"
-#include "services/InvertedSearchIndex.h"
+#include <string>
 #include "services/QueryOps.h"
+#include "services/LoadFile.h"
 
-int firstLaunch = 0;
-
-// int levenshteinCalc(std::string userInput, std::string comparisonString){
-//
-// }
-//
-// void initCache(){
-// }
-//
-
-void callFileSearch(){
-    const char *testMessage = "/";
-    systemFileSearch(testMessage);
-}
-
-int main(){
-    callFileSearch();
-    createInvertedSearchIndex();
-    std::cout << "Enter your fuzzy query: ";
+int main() {
+    loadIndexToMemory(); 
     
+    std::cout << "Enter your fuzzy query: ";
     std::string inputBuffer;
     std::getline(std::cin, inputBuffer); 
 
     performSearch(inputBuffer);
+
+    return 0;
 }
+

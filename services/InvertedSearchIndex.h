@@ -1,1 +1,3 @@
+#include <vector>
+
 void createInvertedSearchIndex();

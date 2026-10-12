@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <string_view>
 #include <mutex> 
+#include "LoadFile.h"
 
 extern std::ifstream binaryFile;
 std::vector<std::pair<int, std::string>> globalMatches; 
@@ -189,29 +190,11 @@ void searchSegmentWorker(std::string_view segment, std::string_view query, int m
 }
 
 void performSearch(const std::string& inpString) {
-    if (binaryFile.is_open()) {
-        binaryFile.close();
-    }
-    binaryFile.clear();
-
-    binaryFile.open(".fizzLocalCache.bin", std::ios::binary);
-    if (!binaryFile.is_open()) {
-        std::cout << "[ERROR] Could not open .fizzLocalCache.bin for reading!\n";
-        return;
+    if (g_InMemoryIndexBuffer.empty()) { 
+        return; 
     }
 
-    size_t charCount = 0;
-    binaryFile.seekg(8, std::ios::beg);
-    binaryFile.read(reinterpret_cast<char*>(&charCount), sizeof(charCount));
-    
-    if (charCount <= 0) return; 
-    
-    std::vector<char> buffer(charCount);
-    binaryFile.seekg(-static_cast<std::streamoff>(charCount), std::ios::end);
-    binaryFile.read(buffer.data(), charCount);
-    binaryFile.close(); 
-
-    std::string_view fullBufferView(buffer.data(), buffer.size());
+    std::string_view fullBufferView(g_InMemoryIndexBuffer.data(), g_InMemoryIndexBuffer.size());
     std::string_view query = inpString; 
     int maxDistance = 2;             
 
@@ -260,3 +243,4 @@ void performSearch(const std::string& inpString) {
         std::cout << "[Score: " << match.first << "] " << match.second << "\n";
     }
 }
+

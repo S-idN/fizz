@@ -1,10 +1,11 @@
-#include <iostream>
+// #include <iostream>
 #include <vector>
 #include <fstream>
 #include "FileSearch.h"
 
 std::vector<std::string> ignoreWords;
-std::ifstream binaryFile(".fizzLocalCache.bin", std::ios::binary);
+// std::ifstream binaryFile(".fizzLocalCache.bin", std::ios::binary);
+std::ifstream binaryFile;
 
 void stringTokenizer(std::string_view inpString, int strLen) {
     // std::cout << "FILE VIEW:" << inpString << "\n";
