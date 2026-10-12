@@ -1,19 +1,26 @@
 #include "LoadFile.h"
 #include <iostream>
 #include <fstream>
+#include <cstdlib>
+#include <string>
 
 // extern std::ifstream binaryFile;
+
+static std::string cachePath() {
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.fizzLocalCache.bin";
+}
 
 std::vector<char> g_InMemoryIndexBuffer;
 
 void loadIndexToMemory() {
-        std::ifstream localBinaryFile(".fizzLocalCache.bin", std::ios::binary);
+        std::ifstream localBinaryFile(cachePath(), std::ios::binary);
     if (localBinaryFile.is_open()) {
         localBinaryFile.close();
     }
     localBinaryFile.clear();
 
-    localBinaryFile.open(".fizzLocalCache.bin", std::ios::binary);
+    localBinaryFile.open(cachePath(), std::ios::binary);
     if (!localBinaryFile.is_open()) {
         std::cout << "[ERROR] Could not open .fizzLocalCache.bin to populate RAM cache!\n";
         return;

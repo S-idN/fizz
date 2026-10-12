@@ -1,77 +1,26 @@
-#!/usr/bin/env bash
+set -e 
+cmake -S . -B build
+cmake --build build -j --target main_gui
 
-# Exit immediately if a command exits with a non-zero status
-set -e
+mkdir -p "$HOME/.local/bin"
+cp ./build/main_gui "$HOME/.local/bin/fizz-search"
 
-clear
-echo "===================================================="
-echo "    FIZZ FUZZY SEARCH - ARCH LINUX BACKEND ENGINE   "
-echo "===================================================="
+echo "Binary compiled and installed to: $HOME/.local/bin/fizz-search"
 
-echo "[1/4] Verifying Arch package requirements..."
-DEPENDENCIES=(gcc)
-MISSING_DEPS=()
+HYPR_CONF="$HOME/.config/hypr/hyprland.conf"
 
-for pkg in "${DEPENDENCIES[@]}"; do
-    if ! pacman -Qi "$pkg" &> /dev/null && ! pacman -Qg "$pkg" &> /dev/null; then
-        MISSING_DEPS+=("$pkg")
+if [ -f "$HYPR_CONF" ]; then
+    if ! grep -q "fizz-search" "$HYPR_CONF"; then
+        echo -e "\n# --- Fizz Search Hotkey ---" >> "$HYPR_CONF"
+        echo "bind = CTRL SUPER, SPACE, exec, $HOME/.local/bin/fizz-search" >> "$HYPR_CONF"
+        echo "Hotkey set : (Ctrl + Super + Space) "
+    else
+        echo "Hotkey binding already exists in hyprland.conf, skipping."
     fi
-done
-
-if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
-    echo "[ERROR] Missing required Arch packages: ${MISSING_DEPS[*]}"
-    echo "Please install them via: sudo pacman -S base-devel"
-    exit 1
+else
+    echo "Could not locate hyprland.conf at $HYPR_CONF."
+    echo "   Try manually adding: 'bind = CTRL SUPER, SPACE, exec, /path/to/binary'"
 fi
 
-INSTALL_DIR="$HOME/.local/bin"
-SYSTEMD_DIR="$HOME/.config/systemd/user"
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$SYSTEMD_DIR"
-
-echo "[2/4] Running raw Make compilation pipeline..."
-make clean || true
-make -j$(nproc)
-make install
-
-echo "[3/4] Registering and launching background systemd user service..."
-cat << EOF > "$SYSTEMD_DIR/fizz-daemon.service"
-[Unit]
-Description=Fizz Fuzzy Search Filesystem Monitor Daemon
-After=local-fs.target
-
-[Service]
-Type=simple
-ExecStart=$INSTALL_DIR/fizz-daemon
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable fizz-daemon.service
-systemctl --user start fizz-daemon.service
-
-echo "[4/4] Configuring dynamic hotkey hooks..."
-MANUAL_SHORTCUT_NEEDED=false
-
-if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-    echo " -> Arch Hyprland environment caught!"
-    # Binds hotkey to launch fizz-search natively inside your default system terminal environment
-    hyprctl keyword bind "SUPER, SPACE, exec, alacritty -e $INSTALL_DIR/fizz-search" &> /dev/null || \
-    hyprctl keyword bind "SUPER, SPACE, exec, kitty -e $INSTALL_DIR/fizz-search" &> /dev/null || \
-    hyprctl keyword bind "SUPER, SPACE, exec, foot -e $INSTALL_DIR/fizz-search" &> /dev/null || true
-    
-    MANUAL_SHORTCUT_NEEDED=true
-    SHORTCUT_MSG="Append this to your ~/.config/hypr/hyprland.conf for persistence:\n    bind = \$mainMod, SPACE, exec, kitty -e $INSTALL_DIR/fizz-search"
-fi
-
-echo "----------------------------------------------------"
-echo " SUCCESS: Fizz Backend Engine is fully operational!"
-echo "===================================================="
-if [ "$MANUAL_SHORTCUT_NEEDED" = true ]; then
-    echo -e "\n[IMPORTANT NOTE]\n$SHORTCUT_MSG"
-fi
+echo -e "\nInstallation Complete! Press Ctrl+Super+Space to open Fizz (or reload your Hyprland config)."
 
