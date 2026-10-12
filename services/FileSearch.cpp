@@ -67,30 +67,30 @@ bool fileValChecker(std::string_view fullpath, const char *d_name) {
 
 void performSystemFileSearch(const std::string currPath) {
     fileEntity currFileEnt;
-    std::ofstream file("TestFilenames.txt", std::ios::app);
-    file << currPath+"\n";
+    // std::ofstream file("TestFilenames.txt", std::ios::app);
+    // file << currPath+"\n";
     struct dirent *dp;
     struct stat st;
     struct stat lst;
     DIR *dirp = opendir(currPath.c_str());
-    std::cout << dirp << std::endl;
+    // std::cout << dirp << std::endl;
     if (dirp == nullptr) {
 	return;
     }
-    std::cout << "[PATH]" << currPath << std::endl;
+    // std::cout << "[PATH]" << currPath << std::endl;
 
     while ((dp = readdir(dirp))!=NULL){
 	if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) {
 	    continue;
 	}
 	std::string currFileName = dp->d_name;
-	std::cout << dp->d_name << std::endl;
+	// std::cout << dp->d_name << std::endl;
 	currFileName = currPath + (currPath.back() == '/' ? "" : "/") + currFileName;
 	
 	if (!fileValChecker(currFileName,dp->d_name)){
 	    continue;
 	}
-	std::cout << "[new]: " << currFileName << std::endl;
+	// std::cout << "[new]: " << currFileName << std::endl;
 	currFileEnt.inode = dp->d_ino;
 	currFileEnt.f_length = std::strlen(dp->d_name);
 	currFileEnt.f_type = dp->d_type ? dp->d_type : '\0';
@@ -113,7 +113,7 @@ void systemFileSearch(const std::string currPath){
     size_t structCount = fileStructTable.size();
     size_t charCount = fileTable.size();
 
-        localCache.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+    localCache.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
     localCache.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
 
     localCache.write(reinterpret_cast<const char*>(fileStructTable.data()), 
