@@ -22,7 +22,7 @@ cd fizz (or wherever it's cloned to)
 chmod +x install.sh
 ./install.sh
 ```
-* By default it will try to set Ctrl+<Super>+Space as the hotkey but if it already exists in hyprland.conf it'll skip the hotkey setting step.
+* By default it will try to set Ctrl+ Super Key +Space as the hotkey but if it already exists in hyprland.conf it'll skip the hotkey setting step.
 
 ## TL;DR of working
 * I wanted to make a spotlight style file finder tool that was relatively quick and worked sorta like Spotlight or the Windows PowerToys search tool.
