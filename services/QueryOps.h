@@ -4,7 +4,7 @@
 #include <vector>
 
 struct SearchHit {
-    std::string_view path;   // points into g_InMemoryIndexBuffer
+    std::string_view path;   
     int score;
 };
 

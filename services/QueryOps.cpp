@@ -9,14 +9,13 @@
 
 namespace {
 
-constexpr size_t kMaxQueryLen = 255;   // matches search_buffer[256]
+constexpr size_t kMaxQueryLen = 255;   
 constexpr int    kMaxTokens   = 16;
 
 inline char lowerChar(char c) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 }
 
-// Lowercased, tokenised query built once per search (no heap).
 struct PreparedQuery {
     char buf[kMaxQueryLen + 1];
     std::string_view tokens[kMaxTokens];
@@ -44,7 +43,6 @@ int scoreEntry(std::string_view path, const PreparedQuery& pq, int maxDistance) 
     std::string_view name = (slash == std::string_view::npos) ? path : path.substr(slash + 1);
     if (name.empty() || pq.count == 0) return 0;
 
-    // Lowercase the filename once into a stack buffer (NAME_MAX is 255).
     char fn[256];
     const size_t flen = std::min(name.size(), sizeof(fn));
     for (size_t i = 0; i < flen; ++i) fn[i] = lowerChar(name[i]);
@@ -68,12 +66,7 @@ int scoreEntry(std::string_view path, const PreparedQuery& pq, int maxDistance) 
             s = std::max(s, score);
         }
 
-        // Fuzzy path scores at most 1000, so it can't beat a substring/exact hit: skip it.
-        // Also: ql > maxDistance is required. With the old unsigned-underflow check, 1-char
-        // queries never ran this and 2-char queries matched nearly everything. Remove
-        // `ql > maxDistance` if you want the old behaviour back.
         if (s == 0 && ql > maxDistance) {
-            // subsequence prefilter
             int qIdx = 0;
             for (int f = 0; f < fl && qIdx < ql; ++f)
                 if (fn[f] == sub[qIdx]) ++qIdx;
@@ -116,13 +109,12 @@ int scoreEntry(std::string_view path, const PreparedQuery& pq, int maxDistance) 
             }
         }
 
-        if (s == 0) return 0;   // every token must match
+        if (s == 0) return 0;   
         total += s;
     }
     return total;
 }
 
-// Each worker keeps only its own top-`limit` hits (min-heap by score).
 void searchSegment(std::string_view seg, const PreparedQuery& pq, int maxDist,
                    size_t limit, std::vector<SearchHit>& top) {
     auto cmp = [](const SearchHit& a, const SearchHit& b) { return a.score > b.score; };
@@ -151,7 +143,7 @@ void searchSegment(std::string_view seg, const PreparedQuery& pq, int maxDist,
     }
 }
 
-} // namespace
+} 
 
 void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t limit) {
     out.clear();
@@ -167,7 +159,7 @@ void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t lim
     unsigned hw = std::thread::hardware_concurrency();
     const int nThreads = hw ? static_cast<int>(hw) : 4;
 
-    static std::vector<std::vector<SearchHit>> partials;   // reused across calls
+    static std::vector<std::vector<SearchHit>> partials;   
     partials.resize(nThreads);
 
     std::vector<std::thread> threads;
@@ -200,7 +192,7 @@ void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t lim
 
     std::sort(out.begin(), out.end(), [](const SearchHit& a, const SearchHit& b) {
         if (a.score != b.score) return a.score > b.score;
-        return a.path.data() < b.path.data();      // stable order, no flicker on ties
+        return a.path.data() < b.path.data();      
     });
     if (out.size() > limit) out.resize(limit);
 }
