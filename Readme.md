@@ -9,20 +9,30 @@
 * I cannot speak to this thing's reliability but it seems to work on my PC™ for now (Arch btw).
 
 ## Prerequisites
-* For now I have only tested this on Arch Linux.
-* Install the following dependencies:
-```bash
-sudo pacman -S base-devel glfw-x11 imgui
-```
+Fizz needs a C++17 compiler, CMake, and GLFW + OpenGL development headers.
+(Dear ImGui is bundled in `imgui/`, so there's nothing to install for it.)
 
-## Run these after cloning the repo to install
+| Distro | Command |
+| --- | --- |
+| Arch | `sudo pacman -S --needed base-devel cmake glfw-x11` |
+| Fedora | `sudo dnf install gcc-c++ make cmake glfw-devel mesa-libGL-devel` |
+| Debian/Ubuntu | `sudo apt install build-essential cmake libglfw3-dev libgl1-mesa-dev` |
+| openSUSE | `sudo zypper install gcc-c++ make cmake glfw3-devel Mesa-libGL-devel` |
+
+Only Arch (Hyprland) has been tested so far. The other package names are thoughts and prayers, so please open an issue if one is wrong.
+
+## Install
 ```bash
 git clone https://github.com/S-idN/fizz.git
-cd fizz (or wherever it's cloned to)
+cd fizz
 chmod +x install.sh
 ./install.sh
 ```
-* By default it will try to set Ctrl+ Super Key +Space as the hotkey but if it already exists in hyprland.conf it'll skip the hotkey setting step.
+
+It installs `fizz-search` and `fizzd` into `~/.local/bin` and starts the index daemon as a systemd user service 
+## Hotkey
+* **Hyprland:** the script adds `Ctrl+Super+Space` to `hyprland.conf`, and skips this step if a Fizz binding already exists.
+* **Other desktops (GNOME, KDE, Sway, ...):** bind a shortcut of your choice to `~/.local/bin/fizz-search` in your desktop's keyboard settings or config.
 
 ## TL;DR of working
 * I wanted to make a spotlight style file finder tool that was relatively quick and worked sorta like Spotlight or the Windows PowerToys search tool.
