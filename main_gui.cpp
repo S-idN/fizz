@@ -1,3 +1,4 @@
+//Temp frontend, I'll make a proper one once I learn how to use C++ frontend frameworks properly T-T 
 #include <fcntl.h>
 #include <unistd.h>
 #include <csignal>
@@ -6,7 +7,9 @@
 #include <string_view>
 #include <thread>
 #include <vector>
-
+#include <cctype>
+#include <string>
+#include <unordered_map>
 #include <GLFW/glfw3.h>
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_glfw.h"
@@ -14,6 +17,42 @@
 
 #include "services/QueryOps.h"
 #include "services/LoadFile.h"
+
+struct Tag { const char* label; ImVec4 color; };
+
+static Tag classify(std::string_view path, ExecState state) {
+    if (state == ExecState::Executable) return {"exec", {0.95f, 0.65f, 0.25f, 1.f}};
+
+    size_t slash = path.rfind('/');
+    size_t dot   = path.rfind('.');
+    if (dot == std::string_view::npos ||
+        (slash != std::string_view::npos && dot <= slash + 1))   
+        return {nullptr, {}};
+
+    std::string ext(path.substr(dot + 1));
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+
+    static const ImVec4 kBlue   = {0.45f, 0.65f, 0.95f, 1.f};
+    static const ImVec4 kPurple = {0.70f, 0.55f, 0.95f, 1.f};
+    static const ImVec4 kPink   = {0.95f, 0.50f, 0.65f, 1.f};
+    static const ImVec4 kGreen  = {0.55f, 0.85f, 0.45f, 1.f};
+    static const ImVec4 kGrey   = {0.60f, 0.65f, 0.67f, 1.f};
+
+    static const std::unordered_map<std::string, Tag> kTags = [] {
+        std::unordered_map<std::string, Tag> m;
+        auto add = [&](std::initializer_list<const char*> exts, Tag t) { for (auto e : exts) m[e] = t; };
+        add({"txt","md","rst","log","json","toml","yaml","yml","ini","conf","cfg","csv"}, {"text",    kBlue});
+        add({"c","cc","cpp","h","hpp","py","js","ts","rs","go","java","sh","lua","cmake"}, {"code",    kPurple});
+        add({"png","jpg","jpeg","gif","webp","svg","bmp"},                                {"image",   kPink});
+        add({"mp3","flac","wav","ogg","mp4","mkv","webm","mov"},                          {"media",   kGreen});
+        add({"pdf","epub","odt","docx","xlsx","pptx"},                                    {"doc",     kBlue});
+        add({"zip","tar","gz","xz","zst","7z","rar"},                                     {"archive", kGrey});
+        return m;
+    }();
+
+    auto it = kTags.find(ext);
+    return it == kTags.end() ? Tag{nullptr, {}} : it->second;
+}
 
 void daemonRunner();  
 constexpr int   kWidth   = 1650;
@@ -98,7 +137,7 @@ static void openPath(std::string_view path, ExecState state, bool showFolder) {
     }
 }
 
-static bool drawRow(std::string_view path, bool selected) {
+static bool drawRow(std::string_view path, ExecState state, bool selected) {
     bool clicked = ImGui::Selectable("##row", selected,
                        ImGuiSelectableFlags_AllowDoubleClick, {0, kRowH});
 
@@ -110,12 +149,26 @@ static bool drawRow(std::string_view path, bool selected) {
     ImVec2 pos = {min.x + 10, min.y + (kRowH - ImGui::GetFontSize()) * 0.5f};
     float nameW = ImGui::CalcTextSize(name.data(), name.data() + name.size()).x;
 
+    Tag tag = classify(path, state);
+    static const float badgeW = ImGui::CalcTextSize("archive").x + 12;   
+    const float rightPad = 10.f;
+    const float textRight = tag.label ? max.x - rightPad - badgeW - 8 : max.x;
+
     ImDrawList* dl = ImGui::GetWindowDrawList();
     if (selected) dl->AddRectFilled(min, {min.x + 2, max.y}, ImGui::GetColorU32(kAccent));
-    dl->PushClipRect(min, max, true);                 // long dirs clip at the edge
+
+    dl->PushClipRect(min, {textRight, max.y}, true);   
     dl->AddText(pos, ImGui::GetColorU32(kText), name.data(), name.data() + name.size());
     dl->AddText({pos.x + nameW + 16, pos.y}, ImGui::GetColorU32(kDim), dir.data(), dir.data() + dir.size());
     dl->PopClipRect();
+
+    if (tag.label) {
+        ImVec2 bmin = {max.x - rightPad - badgeW, min.y + 3};
+        ImVec2 bmax = {max.x - rightPad,          max.y - 3};
+        float tw = ImGui::CalcTextSize(tag.label).x;
+        dl->AddRect(bmin, bmax, ImGui::GetColorU32(withAlpha(tag.color, 0.45f)));
+        dl->AddText({bmin.x + (badgeW - tw) * 0.5f, pos.y}, ImGui::GetColorU32(tag.color), tag.label);
+    }
     return clicked;
 }
 
@@ -199,7 +252,7 @@ int main() {
 	ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()});
 	for (int i = 0; i < n; ++i) {
 	    ImGui::PushID(i);
-	    if (drawRow(results[i].path, i == selected)) {
+	    if (drawRow(results[i].path, results[i].execState, i == selected)) {
 		selected = i;
 		if (ImGui::IsMouseDoubleClicked(0)) chosen = i;
 	    }
