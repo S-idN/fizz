@@ -31,13 +31,22 @@ std::ofstream createLocalCache() {
     return std::ofstream(".fizzLocalCache.bin", std::ios::binary | std::ios::app);
 }
 
+// //Weird wizard shit
+// //This is 128 in decimal or 1 0 0 0 0 0 0 0 in Decimal, bit 7 acts as the toggle
+// #define FT_EXEC_MASK 0x80
 
-void addToLocalCache(unsigned long inode, unsigned char f_type, size_t f_length, std::string f_name){
+void addToLocalCache(unsigned long inode, unsigned char f_type, size_t f_length, std::string f_name, ExecState isExecutable){
     struct fileEntity fileEnt;
     fileEnt.inode = inode;
     fileEnt.f_offset = fileTable.size();
     fileEnt.f_length = f_length + 1;
     fileEnt.f_type = f_type;
+    fileEnt.f_execState = isExecutable;
+	//    if (isExecutable == ExecState::Executable) {
+	// fileEnt.f_type = f_type | FT_EXEC_MASK;
+	//    } else {
+	// fileEnt.f_type = f_type;
+	//    }
     for(int i=0;i<f_length ;i++){
 	fileTable.push_back(f_name[i]);
 	// fileTable[fileTableOffset++] = f_name[i];
@@ -94,10 +103,19 @@ void performSystemFileSearch(const std::string currPath) {
 	currFileEnt.inode = dp->d_ino;
 	currFileEnt.f_length = std::strlen(dp->d_name);
 	currFileEnt.f_type = dp->d_type ? dp->d_type : '\0';
-	addToLocalCache(dp->d_ino, dp->d_type, currFileName.size(), currFileName);
+	currFileEnt.f_execState = ExecState::NotExecutable;
+	if (dp->d_type == DT_REG) {
+	    struct stat st;
+	    if (stat(currFileName.c_str(), &st) == 0) {
+		bool isExec = (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
+		currFileEnt.f_execState = static_cast<ExecState>(isExec);
+	    }
+
+	}
+	addToLocalCache(dp->d_ino, dp->d_type, currFileName.size(), currFileName, currFileEnt.f_execState);
 	if (dp->d_type == DT_DIR) {
 	    performSystemFileSearch(currFileName);
-	}
+	} 
     }
     closedir(dirp);
 }
