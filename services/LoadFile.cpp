@@ -1,3 +1,4 @@
+#include "FileSearch.h"
 #include "LoadFile.h"
 #include <iostream>
 #include <fstream>
@@ -13,29 +14,33 @@ static std::string cachePath() {
 
 std::vector<char> g_InMemoryIndexBuffer;
 
-void loadIndexToMemory() {
-        std::ifstream localBinaryFile(cachePath(), std::ios::binary);
-    if (localBinaryFile.is_open()) {
-        localBinaryFile.close();
-    }
-    localBinaryFile.clear();
+#include "FileSearch.h"   
+extern std::vector<fileEntity> fileStructTable;
 
-    localBinaryFile.open(cachePath(), std::ios::binary);
-    if (!localBinaryFile.is_open()) {
-        std::cout << "[ERROR] Could not open .fizzLocalCache.bin to populate RAM cache!\n";
+void loadIndexToMemory() {
+    std::ifstream f(cachePath(), std::ios::binary);
+    if (!f.is_open()) {
+        std::cout << "[ERROR] Could not open " << cachePath() << "\n";
         return;
     }
 
-    size_t charCount = 0;
-    localBinaryFile.seekg(8, std::ios::beg);
-    localBinaryFile.read(reinterpret_cast<char*>(&charCount), sizeof(charCount));
-    
-    if (charCount > 0) {
-        g_InMemoryIndexBuffer.resize(charCount);
-        localBinaryFile.seekg(-static_cast<std::streamoff>(charCount), std::ios::end);
-        localBinaryFile.read(g_InMemoryIndexBuffer.data(), charCount);
-    }
-    localBinaryFile.close();
-    std::cout << "[SYSTEM] Cached " << g_InMemoryIndexBuffer.size() << " bytes into RAM.\n";
-}
+    size_t structCount = 0, charCount = 0;
+    f.read(reinterpret_cast<char*>(&structCount), sizeof(structCount));
+    f.read(reinterpret_cast<char*>(&charCount),   sizeof(charCount));
+    if (!f) return;
 
+    fileStructTable.resize(structCount);
+    f.read(reinterpret_cast<char*>(fileStructTable.data()),
+           structCount * sizeof(fileEntity));
+
+    g_InMemoryIndexBuffer.resize(charCount);
+    f.read(g_InMemoryIndexBuffer.data(), charCount);
+
+    if (!f) {           fileStructTable.clear();
+	g_InMemoryIndexBuffer.clear();
+	std::cout << "[ERROR] Cache is truncated or in an old format; rebuild it.\n";
+	return;
+    }
+    std::cout << "[SYSTEM] Loaded " << structCount << " entries, "
+	<< charCount << " bytes.\n";
+}

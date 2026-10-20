@@ -7,6 +7,8 @@
 #include "LoadFile.h"
 #include "QueryOps.h"
 
+extern std::vector<fileEntity> fileStructTable;
+
 namespace {
 
 constexpr size_t kMaxQueryLen = 255;   
@@ -120,29 +122,37 @@ void searchSegment(std::string_view seg, const PreparedQuery& pq, int maxDist,
     auto cmp = [](const SearchHit& a, const SearchHit& b) { return a.score > b.score; };
     top.clear();
 
-    size_t start = 0;
+   size_t start = 0;
     while (start < seg.size()) {
         size_t end = seg.find('\0', start);
         if (end == std::string_view::npos) end = seg.size();
 
-        if (end > start) {
-            std::string_view path(seg.data() + start, end - start);
-            int score = scoreEntry(path, pq, maxDist);
-            if (score > 0) {
-                if (top.size() < limit) {
-                    top.push_back({path, score});
-                    std::push_heap(top.begin(), top.end(), cmp);
-                } else if (score > top.front().score) {
-                    std::pop_heap(top.begin(), top.end(), cmp);
-                    top.back() = {path, score};
-                    std::push_heap(top.begin(), top.end(), cmp);
-                }
-            }
-        }
-        start = end + 1;
+	if (end > start) {
+	    std::string_view path(seg.data() + start, end - start);
+	    int score = scoreEntry(path, pq, maxDist);
+	    if (score > 0) {
+		if (top.size() < limit) {
+		    top.push_back({path, ExecState{}, score});
+		    std::push_heap(top.begin(), top.end(), cmp);
+		} else if (score > top.front().score) {
+		    std::pop_heap(top.begin(), top.end(), cmp);
+		    top.back() = {path, ExecState{}, score};
+		    std::push_heap(top.begin(), top.end(), cmp);
+		}
+	    }
+	}
+	start = end + 1;
     }
 }
 
+static ExecState lookupExecState(std::string_view path) {
+    const size_t off = static_cast<size_t>(path.data() - g_InMemoryIndexBuffer.data());
+    auto it = std::lower_bound(fileStructTable.begin(), fileStructTable.end(), off,
+        [](const fileEntity& e, size_t v) { return e.f_offset < v; });
+    if (it != fileStructTable.end() && it->f_offset == off)
+        return it->f_execState;
+    return ExecState::NotExecutable;
+}
 } 
 
 void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t limit) {
@@ -195,6 +205,7 @@ void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t lim
         return a.path.data() < b.path.data();      
     });
     if (out.size() > limit) out.resize(limit);
+    for (auto& h : out) h.execState = lookupExecState(h.path);
 }
 
 void performSearch(const std::string& inpString) {

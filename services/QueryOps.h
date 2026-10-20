@@ -2,9 +2,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "FileSearch.h"
 
 struct SearchHit {
     std::string_view path;   
+    ExecState execState;
+    // unsigned char f_type;
     int score;
 };
 

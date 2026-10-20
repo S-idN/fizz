@@ -17,8 +17,8 @@ find_package(Threads REQUIRED)
 
 # 2. Core logic
 set(SERVICES_SOURCES
+    services/FileCacheBuilder.cpp
     services/FileSearch.cpp
-    services/InvertedSearchIndex.cpp
     services/LoadFile.cpp
     services/QueryOps.cpp
 )
@@ -53,3 +53,22 @@ target_link_libraries(main_gui PRIVATE
 # 7. Optional size/speed tweaks (remove if they cause problems)
 target_compile_options(main_gui PRIVATE -O2)
 target_link_options(main_gui PRIVATE -s)   # strip symbols; drop this while debugging
+
+# 8. Index daemon (same FileCacheBuilder.cpp, built with its own main())
+add_executable(fizzd
+    services/FileCacheBuilder.cpp
+    services/FileSearch.cpp
+)
+
+target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
+
+target_include_directories(fizzd PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/services
+)
+
+target_link_libraries(fizzd PRIVATE Threads::Threads)
+target_link_options(fizzd PRIVATE -s)
+
+# 9. Optional: `cmake --install build --prefix ~/.local`
+install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)

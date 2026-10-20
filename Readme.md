@@ -2,8 +2,8 @@
 * A super quick system wide fuzzy search app.
 * Specialises in finding files
 
-## Quick Temp Demo
-![Descriptive Alt Text](assets/DearimGUIDEMOV1.png)
+## Demo Screenshot
+![Descriptive Alt Text](assets/DearimGUIV1.png)
 
 ## V1
 * I cannot speak to this thing's reliability but it seems to work on my PC™ for now (Arch btw).
