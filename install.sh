@@ -55,12 +55,13 @@ if deps_missing; then
 fi
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)" --target main_gui fizzd
+cmake --build build -j"$(nproc)" --target main_gui fizzd fizzindex
 
 mkdir -p "$BIN_DIR"
-install -m755 build/main_gui "$BIN_DIR/fizz-search"
-install -m755 build/fizzd    "$BIN_DIR/fizzd"
-echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
+install -m755 build/main_gui  "$BIN_DIR/fizz-search"
+install -m755 build/fizzd     "$BIN_DIR/fizzd"
+install -m755 build/fizzindex "$BIN_DIR/fizzindex"
+echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd, $BIN_DIR/fizzindex"
 
 if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
     mkdir -p "$UNIT_DIR"
@@ -81,7 +82,7 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload
     systemctl --user enable fizzd.service
-    systemctl --user restart fizzd.service    
+    systemctl --user restart fizzd.service
     echo "fizzd systemd user service enabled and running."
 else
     mkdir -p "$AUTOSTART_DIR"
@@ -131,11 +132,11 @@ hotkey_gnome() {
     local cur new
     cur=$(gsettings get $schema custom-keybindings)
     case "$cur" in
-        *"$path"*) ;;   
+        *"$path"*) ;;
         *)  if [ "$cur" = "@as []" ] || [ "$cur" = "[]" ]; then
                 new="['$path']"
             else
-                new="${cur%]}, '$path']"   
+                new="${cur%]}, '$path']"
             fi
             gsettings set $schema custom-keybindings "$new" ;;
     esac

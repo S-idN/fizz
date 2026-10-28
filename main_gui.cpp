@@ -1,4 +1,6 @@
 //Temp frontend, I'll make a proper one once I learn how to use C++ frontend frameworks properly T-T 
+#include <sys/file.h>
+#include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
 #include <csignal>
@@ -8,7 +10,6 @@
 #include <thread>
 #include <vector>
 #include <cctype>
-#include <string>
 #include <unordered_map>
 #include <GLFW/glfw3.h>
 #include "imgui/imgui.h"
@@ -17,6 +18,7 @@
 
 #include "services/QueryOps.h"
 #include "services/LoadFile.h"
+#include "services/TrigramSearch.h"
 
 struct Tag { const char* label; ImVec4 color; };
 
@@ -137,6 +139,48 @@ static void openPath(std::string_view path, ExecState state, bool showFolder) {
     }
 }
 
+static std::string contentCacheDir() {
+    const char* xdg  = getenv("XDG_CACHE_HOME");
+    const char* home = getenv("HOME");
+    if (xdg && *xdg) return std::string(xdg) + "/fizz";
+    if (home)        return std::string(home) + "/.cache/fizz";
+    return "";
+}
+
+static bool contentIndexRunning() {
+    std::string dir = contentCacheDir();
+    if (dir.empty()) return false;
+
+    int fd = open((dir + "/fizzindex.lock").c_str(), O_RDWR | O_CLOEXEC);
+    if (fd < 0) return false;                         
+    bool running = flock(fd, LOCK_EX | LOCK_NB) < 0;  
+    close(fd);                                        
+    return running;
+}
+
+static void startContentIndex() {
+    const char* home = getenv("HOME");
+    std::string local = home ? std::string(home) + "/.local/bin/fizzindex" : "";
+
+    if (fork() == 0) {
+        setsid();
+        int dn = open("/dev/null", O_RDWR);
+        if (dn >= 0) { dup2(dn, 0); dup2(dn, 1); dup2(dn, 2); }
+        if (!local.empty()) execl(local.c_str(), "fizzindex", (char*)nullptr);
+        execlp("fizzindex", "fizzindex", (char*)nullptr);   // fallback: PATH
+        _exit(127);
+    }
+}
+
+static std::vector<std::string> g_contentStore;
+
+static void searchContent(std::string_view q, std::vector<SearchHit>& out, size_t limit) {
+    out.clear();                                  
+    triSearch(q, g_contentStore, limit);
+    for (const std::string& s : g_contentStore)
+        out.push_back({s, ExecState::NotExecutable, 0});
+}
+
 static bool drawRow(std::string_view path, ExecState state, bool selected) {
     bool clicked = ImGui::Selectable("##row", selected,
                        ImGuiSelectableFlags_AllowDoubleClick, {0, kRowH});
@@ -210,7 +254,13 @@ int main() {
     std::vector<SearchHit> results;
     results.reserve(kMaxHits);
     int selected = 0;
+    bool   indexing      = false;
+    double lastIdxCheck  = -10.0;
     bool scrollToSel = false;
+
+    const std::string contentIdx = contentCacheDir() + "/content.idx";
+    triLoad(contentIdx);
+    bool forceSearch = false;
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -218,6 +268,13 @@ int main() {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
+        if (glfwGetTime() - lastIdxCheck > 1.0) {
+            bool was = indexing;
+            indexing = contentIndexRunning();
+            if (was && !indexing) { triLoad(contentIdx); forceSearch = true; }
+            lastIdxCheck = glfwGetTime();
+        }
 
         ImGui::SetNextWindowPos({0, 0});
         ImGui::SetNextWindowSize(io.DisplaySize);
@@ -229,40 +286,54 @@ int main() {
         ImGui::SameLine(0, 8);
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::SetKeyboardFocusHere();         
-        if (ImGui::InputText("##q", buf, sizeof(buf))) {
+        bool edited = ImGui::InputText("##q", buf, sizeof(buf));
+        if (edited || forceSearch) {
             std::string_view q(buf);
-            if (q != lastQuery) {
-                searchPaths(q, results, kMaxHits);
+            if (forceSearch || q != lastQuery) {
+                if (q.size() >= 2 && q[0] == '/' && q[1] == ' ')
+                    searchContent(q.substr(2), results, kMaxHits);   
+                else
+                    searchPaths(q, results, kMaxHits);
                 lastQuery.assign(q);
                 selected = 0;
             }
+            forceSearch = false;
         }
 
         const int n = (int)results.size();
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) { ++selected; scrollToSel = true; }
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { --selected; scrollToSel = true; }
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) {
+            ++selected; scrollToSel = true; 
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { 
+            --selected; scrollToSel = true; 
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) glfwSetWindowShouldClose(window, 1);
-
         int chosen = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_F5) && !indexing) {
+            startContentIndex();
+            indexing = true;
+            lastIdxCheck = glfwGetTime();   
+        }
         if ((ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) && n > 0)
             chosen = selected;
 
         ImGui::Separator();
 
-	ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()});
-	for (int i = 0; i < n; ++i) {
-	    ImGui::PushID(i);
-	    if (drawRow(results[i].path, results[i].execState, i == selected)) {
-		selected = i;
-		if (ImGui::IsMouseDoubleClicked(0)) chosen = i;
-	    }
-	    if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
-	    ImGui::PopID();
-	}
-	if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
-	ImGui::EndChild();
-	ImGui::TextDisabled("%d hits   enter open   shift+enter open folder   esc quit", n);
-	ImGui::End();
+        ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()});
+        for (int i = 0; i < n; ++i) {
+            ImGui::PushID(i);
+            if (drawRow(results[i].path, results[i].execState, i == selected)) {
+                selected = i;
+                if (ImGui::IsMouseDoubleClicked(0)) chosen = i;
+            }
+            if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
+            ImGui::PopID();
+        }
+        if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
+        ImGui::EndChild();
+        ImGui::TextDisabled("%d hits   enter open   shift+enter folder   / text = contents   f5 index contents   esc quit%s",
+                n, indexing ? "   [indexing..]" : "");
+        ImGui::End();
 
         if (chosen >= 0) {
             openPath(results[chosen].path, results[chosen].execState, io.KeyShift);

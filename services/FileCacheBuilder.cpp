@@ -16,8 +16,8 @@ namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-constexpr auto kInterval = 1h;   
-constexpr auto kQuiet    = 2s;   
+constexpr auto kInterval = 4h; 
+constexpr auto kQuiet    = 2s;  //Wait for a lil bit before commencing search 
 constexpr auto kMaxDefer = 10s;  
 
 static volatile sig_atomic_t gStop = 0;

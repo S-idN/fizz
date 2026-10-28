@@ -7,17 +7,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)   
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
 find_package(glfw3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
+# GUI side: filename index + trigram *reader* (no writer code)
 set(SERVICES_SOURCES
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
     services/LoadFile.cpp
     services/QueryOps.cpp
+    services/TrigramSearch.cpp
 )
 
 set(IMGUI_SOURCES
@@ -44,21 +46,31 @@ target_link_libraries(main_gui PRIVATE
 )
 
 target_compile_options(main_gui PRIVATE -O2)
-target_link_options(main_gui PRIVATE -s)   
+target_link_options(main_gui PRIVATE -s)
 
+# fizzd: filename cache daemon
 add_executable(fizzd
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
 )
-
 target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
-
-target_include_directories(fizzd PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/services
-)
-
 target_link_libraries(fizzd PRIVATE Threads::Threads)
 target_link_options(fizzd PRIVATE -s)
 
-install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)
+# fizzindex: trigram content indexer (writer + main)
+add_executable(fizzindex
+    services/FizzIndex.cpp
+    services/TrigramIndex.cpp
+)
+target_compile_definitions(fizzindex PRIVATE FIZZINDEX_MAIN)
+target_compile_options(fizzindex PRIVATE -O2)
+target_link_options(fizzindex PRIVATE -s)
+
+foreach(t fizzd fizzindex)
+    target_include_directories(${t} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/services
+    )
+endforeach()
+
+install(TARGETS fizzd fizzindex main_gui RUNTIME DESTINATION bin)
