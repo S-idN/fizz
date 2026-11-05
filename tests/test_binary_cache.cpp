@@ -591,11 +591,47 @@ void test_config_custom_roots_and_ignores_traversal() {
     std::cout << "[PASS] test_config_custom_roots_and_ignores_traversal passed.\n";
 }
 
+void test_custom_ignore_rules_matching() {
+    std::cout << "[TEST] Running test_custom_ignore_rules_matching...\n";
+
+    setCustomIgnoreRules({"/var/log/custom", "target", "build"});
+
+    // 1. Path prefix rules
+    TEST_ASSERT(isPathIgnored("/var/log/custom", "custom"));
+    TEST_ASSERT(isPathIgnored("/var/log/custom/app.log", "app.log"));
+    TEST_ASSERT(isPathIgnored("/var/log/custom/nested/file.txt", "file.txt"));
+    // Must NOT match prefix that is merely a substring / shared prefix of directory name
+    TEST_ASSERT(!isPathIgnored("/var/log/custom_other/file.txt", "file.txt"));
+
+    // 2. Component / directory name rules
+    TEST_ASSERT(isPathIgnored("/home/user/rust/target/debug/bin", "bin"));
+    TEST_ASSERT(isPathIgnored("/home/user/rust/target", "target"));
+    TEST_ASSERT(isPathIgnored("", "target"));
+    TEST_ASSERT(isPathIgnored("/home/user/project/build/output.o", "output.o"));
+    // Must NOT match partial component name
+    TEST_ASSERT(!isPathIgnored("/home/user/rust/target_backup/bin", "bin"));
+    TEST_ASSERT(!isPathIgnored("/home/user/build_dir/output.o", "output.o"));
+
+    // 3. Default ignore rules must remain active
+    TEST_ASSERT(isPathIgnored("/home/user/.git/config", "config"));
+    TEST_ASSERT(isPathIgnored("", ".git"));
+    TEST_ASSERT(isPathIgnored("/home/user/.cache/app", "app"));
+    TEST_ASSERT(isPathIgnored("/home/user/node_modules/pkg", "pkg"));
+
+    // Reset custom ignore rules
+    setCustomIgnoreRules({});
+    TEST_ASSERT(!isPathIgnored("/var/log/custom/app.log", "app.log"));
+    TEST_ASSERT(!isPathIgnored("/home/user/rust/target/debug/bin", "bin"));
+
+    std::cout << "[PASS] test_custom_ignore_rules_matching passed.\n";
+}
+
 int main() {
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
     test_config_parser_corrupt_and_unreadable();
     test_config_custom_roots_and_ignores_traversal();
+    test_custom_ignore_rules_matching();
     test_file_classification();
     test_default_search_roots();
     test_dual_search_roots_and_traversal();

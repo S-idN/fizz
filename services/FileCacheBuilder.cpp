@@ -39,6 +39,8 @@ static void watch(const std::string& dir) {
 }
 
 static void watchTree(const std::string& root) {
+    std::string rootName = fs::path(root).filename().string();
+    if (isPathIgnored(root, rootName.empty() ? nullptr : rootName.c_str())) return;
     watch(root);
     std::error_code ec;
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
@@ -62,7 +64,11 @@ static bool readEvents() {
             p += sizeof(inotify_event) + ev->len;
 
             if (ev->mask & IN_IGNORED) { dirOf.erase(ev->wd); continue; }   
-            if (ev->len && isPathIgnored("", ev->name)) continue;
+            if (ev->len) {
+                if (isPathIgnored("", ev->name)) continue;
+                std::string fullPath = dirOf.count(ev->wd) ? (dirOf[ev->wd] + "/" + ev->name) : "";
+                if (!fullPath.empty() && isPathIgnored(fullPath, ev->name)) continue;
+            }
 
             changed = true;
             if ((ev->mask & IN_ISDIR) && (ev->mask & (IN_CREATE | IN_MOVED_TO)) && dirOf.count(ev->wd))
