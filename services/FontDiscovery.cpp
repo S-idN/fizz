@@ -12,7 +12,9 @@ static const std::vector<std::string> kRelativeCandidates = {
 
     // 2. Cantarell (Fedora, Arch, Debian/Ubuntu)
     "usr/share/fonts/abattis-cantarell-fonts/Cantarell-Regular.otf",
+    "usr/share/fonts/cantarell/Cantarell-VF.otf",
     "usr/share/fonts/cantarell/Cantarell-Regular.otf",
+    "usr/share/fonts/opentype/cantarell/Cantarell-VF.otf",
     "usr/share/fonts/opentype/cantarell/Cantarell-Regular.otf",
     "usr/share/fonts/truetype/cantarell/Cantarell-Regular.ttf",
 
@@ -46,21 +48,11 @@ std::vector<std::string> getDefaultFontCandidates(const std::string& sysRoot) {
     return result;
 }
 
-std::string resolveSystemFont(
-    const std::string& sysRoot,
-    const std::vector<std::string>& customCandidates,
-    const std::function<bool(const std::string&)>& fileChecker
-) {
-    const std::vector<std::string> candidates = !customCandidates.empty()
-        ? customCandidates
-        : getDefaultFontCandidates(sysRoot);
-
-    auto checker = fileChecker ? fileChecker : [](const std::string& path) {
-        return access(path.c_str(), R_OK) == 0;
-    };
+std::string resolveSystemFont(const std::string& sysRoot) {
+    const std::vector<std::string> candidates = getDefaultFontCandidates(sysRoot);
 
     for (const auto& path : candidates) {
-        if (checker(path)) {
+        if (access(path.c_str(), R_OK) == 0) {
             return path;
         }
     }

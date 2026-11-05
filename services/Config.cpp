@@ -104,20 +104,24 @@ void setConfigPath(const std::string& path) {
     s_CustomConfigPath = path;
 }
 
+FizzConfig FizzConfig::defaults() {
+    return FizzConfig{ getDefaultSearchRoots(true), {}, true };
+}
+
 FizzConfig loadConfig(const std::string& configPath) {
     std::string path = configPath.empty() ? getConfigPath() : configPath;
 
     std::error_code ec;
     if (!fs::exists(path, ec) || !fs::is_regular_file(path, ec)) {
-        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
+        return FizzConfig::defaults();
     }
 
     std::ifstream file(path);
     if (!file.is_open()) {
-        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
+        return FizzConfig::defaults();
     }
 
-    FizzConfig config;
+    FizzConfig config = FizzConfig::defaults();
     bool hasSearchRoots = false;
     bool unreadable = false;
 
@@ -166,7 +170,7 @@ FizzConfig loadConfig(const std::string& configPath) {
     }
 
     if (unreadable) {
-        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
+        return FizzConfig::defaults();
     }
 
     if (!hasSearchRoots || config.searchRoots.empty()) {

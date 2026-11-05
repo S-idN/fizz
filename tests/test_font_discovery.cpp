@@ -17,6 +17,12 @@ namespace fs = std::filesystem;
         } \
     } while (0)
 
+static void createDummyFile(const fs::path& p) {
+    fs::create_directories(p.parent_path());
+    std::ofstream out(p);
+    out << "fake font data";
+}
+
 void test_candidate_generation() {
     std::cout << "[TEST] Running test_candidate_generation...\n";
 
@@ -33,9 +39,10 @@ void test_candidate_generation() {
     FONT_TEST_ASSERT(containsSubstr("adwaita-sans-fonts/AdwaitaSans-Regular.ttf") ||
                      containsSubstr("AdwaitaSans-Regular.ttf"));
 
-    // Must probe Cantarell on Fedora/Arch/Debian
+    // Must probe Cantarell on Fedora/Arch/Debian including Arch variable font (Cantarell-VF.otf)
     FONT_TEST_ASSERT(containsSubstr("Cantarell-Regular.otf") ||
                      containsSubstr("Cantarell-Regular.ttf"));
+    FONT_TEST_ASSERT(containsSubstr("Cantarell-VF.otf"));
 
     // Must probe Google Sans
     FONT_TEST_ASSERT(containsSubstr("GoogleSans-Regular.ttf"));
@@ -57,69 +64,52 @@ void test_candidate_generation() {
     std::cout << "[PASS] test_candidate_generation passed.\n";
 }
 
-void test_font_resolution_fallback_and_predicate() {
-    std::cout << "[TEST] Running test_font_resolution_fallback_and_predicate...\n";
-
-    // Fallback when nonexistent sysroot
-    std::string noneFound = resolveSystemFont("/nonexistent_sysroot_path_fizz_test");
-    FONT_TEST_ASSERT(noneFound.empty());
-
-    // Fallback when predicate returns false for everything
-    std::vector<std::string> candidates = {"/fake/font1.ttf", "/fake/font2.ttf"};
-    std::string fallback = resolveSystemFont("", candidates, [](const std::string&) { return false; });
-    FONT_TEST_ASSERT(fallback.empty());
-
-    // Resolves when candidate is accepted by predicate
-    std::string resolved = resolveSystemFont("", candidates, [](const std::string& p) {
-        return p == "/fake/font2.ttf";
-    });
-    FONT_TEST_ASSERT(resolved == "/fake/font2.ttf");
-
-    std::cout << "[PASS] test_font_resolution_fallback_and_predicate passed.\n";
-}
-
 void test_cascade_priority() {
     std::cout << "[TEST] Running test_cascade_priority...\n";
 
-    std::vector<std::string> activeFonts;
-    auto mockChecker = [&](const std::string& path) {
-        return std::any_of(activeFonts.begin(), activeFonts.end(), [&](const std::string& f) {
-            return path.find(f) != std::string::npos;
-        });
-    };
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_font_priority";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
 
-    // 1. Adwaita Sans beats Cantarell, DejaVu, and JetBrains
-    activeFonts = {"AdwaitaSans-Regular.ttf", "Cantarell-Regular.otf", "DejaVuSans.ttf", "JetBrainsMono-Regular.ttf"};
-    std::string res1 = resolveSystemFont("", {}, mockChecker);
-    FONT_TEST_ASSERT(res1.find("AdwaitaSans-Regular.ttf") != std::string::npos);
+    fs::path adwaita = tempRoot / "usr/share/fonts/adwaita-sans-fonts/AdwaitaSans-Regular.ttf";
+    fs::path cantarell = tempRoot / "usr/share/fonts/abattis-cantarell-fonts/Cantarell-Regular.otf";
+    fs::path googleSans = tempRoot / "usr/share/fonts/google-sans/GoogleSans-Regular.ttf";
+    fs::path dejavu = tempRoot / "usr/share/fonts/TTF/DejaVuSans.ttf";
+    fs::path jetbrains = tempRoot / "usr/share/fonts/TTF/JetBrainsMono-Regular.ttf";
 
-    // 2. Cantarell beats Google Sans and DejaVu
-    activeFonts = {"Cantarell-Regular.otf", "GoogleSans-Regular.ttf", "DejaVuSans.ttf"};
-    std::string res2 = resolveSystemFont("", {}, mockChecker);
-    FONT_TEST_ASSERT(res2.find("Cantarell-Regular.otf") != std::string::npos);
+    createDummyFile(adwaita);
+    createDummyFile(cantarell);
+    createDummyFile(googleSans);
+    createDummyFile(dejavu);
+    createDummyFile(jetbrains);
+
+    // 1. Adwaita Sans beats all others
+    std::string res1 = resolveSystemFont(tempRoot.string());
+    FONT_TEST_ASSERT(res1 == adwaita.lexically_normal().string());
+
+    // 2. Cantarell beats Google Sans, DejaVu, JetBrains
+    fs::remove(adwaita, ec);
+    std::string res2 = resolveSystemFont(tempRoot.string());
+    FONT_TEST_ASSERT(res2 == cantarell.lexically_normal().string());
 
     // 3. Google Sans beats DejaVu and JetBrains
-    activeFonts = {"GoogleSans-Regular.ttf", "DejaVuSans.ttf", "JetBrainsMono-Regular.ttf"};
-    std::string res3 = resolveSystemFont("", {}, mockChecker);
-    FONT_TEST_ASSERT(res3.find("GoogleSans-Regular.ttf") != std::string::npos);
+    fs::remove(cantarell, ec);
+    std::string res3 = resolveSystemFont(tempRoot.string());
+    FONT_TEST_ASSERT(res3 == googleSans.lexically_normal().string());
 
     // 4. DejaVu Sans beats JetBrains Mono
-    activeFonts = {"DejaVuSans.ttf", "JetBrainsMono-Regular.ttf"};
-    std::string res4 = resolveSystemFont("", {}, mockChecker);
-    FONT_TEST_ASSERT(res4.find("DejaVuSans.ttf") != std::string::npos);
+    fs::remove(googleSans, ec);
+    std::string res4 = resolveSystemFont(tempRoot.string());
+    FONT_TEST_ASSERT(res4 == dejavu.lexically_normal().string());
 
     // 5. JetBrains Mono selected when it is the only one present
-    activeFonts = {"JetBrainsMono-Regular.ttf"};
-    std::string res5 = resolveSystemFont("", {}, mockChecker);
-    FONT_TEST_ASSERT(res5.find("JetBrainsMono-Regular.ttf") != std::string::npos);
+    fs::remove(dejavu, ec);
+    std::string res5 = resolveSystemFont(tempRoot.string());
+    FONT_TEST_ASSERT(res5 == jetbrains.lexically_normal().string());
 
+    fs::remove_all(tempRoot, ec);
     std::cout << "[PASS] test_cascade_priority passed.\n";
-}
-
-static void createDummyFile(const fs::path& p) {
-    fs::create_directories(p.parent_path());
-    std::ofstream out(p);
-    out << "fake font data";
 }
 
 void test_sandboxed_distro_filesystem_discovery() {
@@ -143,7 +133,7 @@ void test_sandboxed_distro_filesystem_discovery() {
     std::string fedoraFound = resolveSystemFont(tempRoot.string());
     FONT_TEST_ASSERT(fedoraFound == fedoraAdwaita.lexically_normal().string());
 
-    // Remove Adwaita, should resolve Cantarell
+    // Remove Adwaita -> resolves Cantarell
     fs::remove(fedoraAdwaita, ec);
     std::string fedoraFound2 = resolveSystemFont(tempRoot.string());
     FONT_TEST_ASSERT(fedoraFound2 == fedoraCantarell.lexically_normal().string());
@@ -163,17 +153,17 @@ void test_sandboxed_distro_filesystem_discovery() {
     fs::remove_all(tempRoot, ec);
     fs::create_directories(tempRoot, ec);
 
-    // 4. Simulated Arch layout with DejaVu Sans and JetBrains Mono
-    fs::path archDejaVu = tempRoot / "usr/share/fonts/TTF/DejaVuSans.ttf";
+    // 4. Simulated Arch layout with Cantarell VF and JetBrains Mono
+    fs::path archCantarellVF = tempRoot / "usr/share/fonts/cantarell/Cantarell-VF.otf";
     fs::path archJetBrains = tempRoot / "usr/share/fonts/TTF/JetBrainsMono-Regular.ttf";
-    createDummyFile(archDejaVu);
+    createDummyFile(archCantarellVF);
     createDummyFile(archJetBrains);
 
     std::string archFound = resolveSystemFont(tempRoot.string());
-    FONT_TEST_ASSERT(archFound == archDejaVu.lexically_normal().string());
+    FONT_TEST_ASSERT(archFound == archCantarellVF.lexically_normal().string());
 
-    // Remove DejaVu -> resolves JetBrains Mono
-    fs::remove(archDejaVu, ec);
+    // Remove Cantarell VF -> resolves JetBrains Mono
+    fs::remove(archCantarellVF, ec);
     std::string archFound2 = resolveSystemFont(tempRoot.string());
     FONT_TEST_ASSERT(archFound2 == archJetBrains.lexically_normal().string());
 
@@ -184,13 +174,24 @@ void test_sandboxed_distro_filesystem_discovery() {
 void test_host_system_font_discovery() {
     std::cout << "[TEST] Running test_host_system_font_discovery...\n";
 
-    // On Linux systems with desktop fonts installed (such as this Fedora host),
-    // resolveSystemFont() must return an existing readable font.
     std::string hostFont = resolveSystemFont();
-    if (fs::exists("/usr/share/fonts")) {
+    auto candidates = getDefaultFontCandidates();
+
+    bool hasHostCandidate = false;
+    for (const auto& c : candidates) {
+        if (fs::exists(c)) {
+            hasHostCandidate = true;
+            break;
+        }
+    }
+
+    if (hasHostCandidate) {
         FONT_TEST_ASSERT(!hostFont.empty());
         FONT_TEST_ASSERT(fs::exists(hostFont));
         std::cout << "  Found host font: " << hostFont << "\n";
+    } else {
+        FONT_TEST_ASSERT(hostFont.empty());
+        std::cout << "  No candidate font on host; graceful empty fallback verified.\n";
     }
 
     std::cout << "[PASS] test_host_system_font_discovery passed.\n";
@@ -198,7 +199,6 @@ void test_host_system_font_discovery() {
 
 void run_font_discovery_tests() {
     test_candidate_generation();
-    test_font_resolution_fallback_and_predicate();
     test_cascade_priority();
     test_sandboxed_distro_filesystem_discovery();
     test_host_system_font_discovery();

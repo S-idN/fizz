@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <functional>
 
 constexpr float kBaseFontSize = 16.0f;
 
@@ -12,11 +11,6 @@ constexpr float kBaseFontSize = 16.0f;
 std::vector<std::string> getDefaultFontCandidates(const std::string& sysRoot = "");
 
 // Resolves a readable system font file path matching the cascade.
-// If customCandidates is non-empty, probes those instead of the default candidates.
-// fileChecker allows dependency injection for tests (defaults to disk read check).
+// sysRoot allows inspecting alternative or sandboxed root filesystem directories.
 // Returns empty string if no candidate exists or is readable.
-std::string resolveSystemFont(
-    const std::string& sysRoot = "",
-    const std::vector<std::string>& customCandidates = {},
-    const std::function<bool(const std::string&)>& fileChecker = nullptr
-);
+std::string resolveSystemFont(const std::string& sysRoot = "");

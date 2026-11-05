@@ -67,7 +67,9 @@ target_link_libraries(fizzd PRIVATE Threads::Threads)
 target_link_options(fizzd PRIVATE -s)
 
 add_executable(fizz_tests
+    tests/test_main.cpp
     tests/test_binary_cache.cpp
+    tests/test_config.cpp
     tests/test_app_launcher.cpp
     tests/test_focus_tracker.cpp
     tests/test_font_discovery.cpp

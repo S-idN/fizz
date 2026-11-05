@@ -93,7 +93,7 @@ static void glfwError(int code, const char* msg) {
 
 static void windowFocusCallback(GLFWwindow* window, int focused) {
     auto* tracker = static_cast<FocusTracker*>(glfwGetWindowUserPointer(window));
-    if (tracker && tracker->handleFocusChange(focused)) {
+    if (tracker && tracker->handleFocusChange(focused != 0)) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
 }

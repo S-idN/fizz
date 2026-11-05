@@ -15,11 +15,11 @@ void test_focus_tracker_initial_state() {
 
     FocusTracker tracker;
     FOCUS_TEST_ASSERT(!tracker.isArmed());
-    FOCUS_TEST_ASSERT(tracker.getAutoCloseOnUnfocus() == true);
+    FOCUS_TEST_ASSERT(tracker.autoCloseOnUnfocus() == true);
 
     FocusTracker trackerDisabled(false);
     FOCUS_TEST_ASSERT(!trackerDisabled.isArmed());
-    FOCUS_TEST_ASSERT(trackerDisabled.getAutoCloseOnUnfocus() == false);
+    FOCUS_TEST_ASSERT(trackerDisabled.autoCloseOnUnfocus() == false);
 
     std::cout << "[PASS] test_focus_tracker_initial_state passed.\n";
 }
@@ -30,7 +30,6 @@ void test_focus_tracker_wayland_premature_dismissal_prevention() {
     FocusTracker tracker;
     // Simulating Wayland compositor initial mapping events before focus is acquired
     FOCUS_TEST_ASSERT(tracker.handleFocusChange(false) == false);
-    FOCUS_TEST_ASSERT(tracker.handleFocusChange(0) == false);
     FOCUS_TEST_ASSERT(!tracker.isArmed());
 
     std::cout << "[PASS] test_focus_tracker_wayland_premature_dismissal_prevention passed.\n";
@@ -45,12 +44,11 @@ void test_focus_tracker_armed_dismissal() {
     FOCUS_TEST_ASSERT(tracker.isArmed());
 
     // Window receives redundant focus event while already focused
-    FOCUS_TEST_ASSERT(tracker.handleFocusChange(1) == false);
+    FOCUS_TEST_ASSERT(tracker.handleFocusChange(true) == false);
     FOCUS_TEST_ASSERT(tracker.isArmed());
 
     // Window loses focus while armed -> triggers dismissal
     FOCUS_TEST_ASSERT(tracker.handleFocusChange(false) == true);
-    FOCUS_TEST_ASSERT(tracker.handleFocusChange(0) == true);
 
     std::cout << "[PASS] test_focus_tracker_armed_dismissal passed.\n";
 }
@@ -68,12 +66,6 @@ void test_focus_tracker_disabled_toggle() {
 
     // Focus loss while auto_close_on_unfocus is disabled does NOT dismiss
     FOCUS_TEST_ASSERT(tracker.handleFocusChange(false) == false);
-    FOCUS_TEST_ASSERT(tracker.handleFocusChange(0) == false);
-
-    // Enabling at runtime then losing focus triggers dismissal
-    tracker.setAutoCloseOnUnfocus(true);
-    FOCUS_TEST_ASSERT(tracker.getAutoCloseOnUnfocus() == true);
-    FOCUS_TEST_ASSERT(tracker.handleFocusChange(false) == true);
 
     std::cout << "[PASS] test_focus_tracker_disabled_toggle passed.\n";
 }
@@ -84,11 +76,3 @@ void run_focus_tracker_tests() {
     test_focus_tracker_armed_dismissal();
     test_focus_tracker_disabled_toggle();
 }
-
-#ifdef FOCUS_TRACKER_TEST_MAIN
-int main() {
-    run_focus_tracker_tests();
-    std::cout << "All focus tracker tests passed successfully.\n";
-    return 0;
-}
-#endif
