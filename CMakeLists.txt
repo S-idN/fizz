@@ -17,6 +17,8 @@ set(SERVICES_SOURCES
     services/AppLauncher.cpp
     services/Config.cpp
     services/FileSearch.cpp
+    services/FocusTracker.cpp
+    services/FontDiscovery.cpp
     services/LoadFile.cpp
     services/QueryOps.cpp
 )
@@ -67,8 +69,12 @@ target_link_options(fizzd PRIVATE -s)
 add_executable(fizz_tests
     tests/test_binary_cache.cpp
     tests/test_app_launcher.cpp
+    tests/test_focus_tracker.cpp
+    tests/test_font_discovery.cpp
     services/Config.cpp
     services/FileSearch.cpp
+    services/FocusTracker.cpp
+    services/FontDiscovery.cpp
     services/LoadFile.cpp
     services/AppLauncher.cpp
     services/QueryOps.cpp

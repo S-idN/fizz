@@ -738,12 +738,84 @@ void test_query_matcher_end_to_end() {
 }
 
 void run_app_launcher_tests();
+void run_font_discovery_tests();
+void run_focus_tracker_tests();
+
+void test_config_parser_auto_close_on_unfocus() {
+    std::cout << "[TEST] Running test_config_parser_auto_close_on_unfocus...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_focus";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    // 1. Missing file defaults to autoCloseOnUnfocus = true
+    FizzConfig missingConfig = loadConfig((tempDir / "nonexistent.conf").string());
+    TEST_ASSERT(missingConfig.autoCloseOnUnfocus == true);
+
+    // 2. Config without auto_close_on_unfocus defaults to true
+    fs::path defaultConf = tempDir / "default.conf";
+    {
+        std::ofstream out(defaultConf);
+        out << "search_roots = /tmp\n";
+    }
+    FizzConfig loadedDefault = loadConfig(defaultConf.string());
+    TEST_ASSERT(loadedDefault.autoCloseOnUnfocus == true);
+
+    // 3. Explicitly setting auto_close_on_unfocus = false (and "0")
+    fs::path disabledConf = tempDir / "disabled.conf";
+    {
+        std::ofstream out(disabledConf);
+        out << "auto_close_on_unfocus = false\n";
+    }
+    FizzConfig loadedDisabled = loadConfig(disabledConf.string());
+    TEST_ASSERT(loadedDisabled.autoCloseOnUnfocus == false);
+
+    fs::path disabledConfZero = tempDir / "disabled_zero.conf";
+    {
+        std::ofstream out(disabledConfZero);
+        out << "auto_close_on_unfocus = 0\n";
+    }
+    FizzConfig loadedDisabledZero = loadConfig(disabledConfZero.string());
+    TEST_ASSERT(loadedDisabledZero.autoCloseOnUnfocus == false);
+
+    // 4. Explicitly setting auto_close_on_unfocus = true (and "1")
+    fs::path enabledConf = tempDir / "enabled.conf";
+    {
+        std::ofstream out(enabledConf);
+        out << "auto_close_on_unfocus = true\n";
+    }
+    FizzConfig loadedEnabled = loadConfig(enabledConf.string());
+    TEST_ASSERT(loadedEnabled.autoCloseOnUnfocus == true);
+
+    fs::path enabledConfOne = tempDir / "enabled_one.conf";
+    {
+        std::ofstream out(enabledConfOne);
+        out << "auto_close_on_unfocus = 1\n";
+    }
+    FizzConfig loadedEnabledOne = loadConfig(enabledConfOne.string());
+    TEST_ASSERT(loadedEnabledOne.autoCloseOnUnfocus == true);
+
+    // 5. Corrupt / invalid value falls back to default (true)
+    fs::path invalidConf = tempDir / "invalid.conf";
+    {
+        std::ofstream out(invalidConf);
+        out << "auto_close_on_unfocus = not_a_boolean\n";
+    }
+    FizzConfig loadedInvalid = loadConfig(invalidConf.string());
+    TEST_ASSERT(loadedInvalid.autoCloseOnUnfocus == true);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_parser_auto_close_on_unfocus passed.\n";
+}
 
 int main() {
     run_app_launcher_tests();
+    run_focus_tracker_tests();
+    run_font_discovery_tests();
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
     test_config_parser_corrupt_and_unreadable();
+    test_config_parser_auto_close_on_unfocus();
     test_config_custom_roots_and_ignores_traversal();
     test_custom_ignore_rules_matching();
     test_file_classification();

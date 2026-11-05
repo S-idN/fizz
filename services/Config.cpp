@@ -109,12 +109,12 @@ FizzConfig loadConfig(const std::string& configPath) {
 
     std::error_code ec;
     if (!fs::exists(path, ec) || !fs::is_regular_file(path, ec)) {
-        return FizzConfig{ getDefaultSearchRoots(true), {} };
+        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
     }
 
     std::ifstream file(path);
     if (!file.is_open()) {
-        return FizzConfig{ getDefaultSearchRoots(true), {} };
+        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
     }
 
     FizzConfig config;
@@ -146,6 +146,18 @@ FizzConfig loadConfig(const std::string& configPath) {
             hasSearchRoots = true;
         } else if (lowerKey == "ignore_rules") {
             config.ignoreRules = parseCommaSeparatedList(val, false);
+        } else if (lowerKey == "auto_close_on_unfocus") {
+            std::string lowerVal = stripQuotes(val);
+            std::transform(lowerVal.begin(), lowerVal.end(), lowerVal.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (lowerVal == "true" || lowerVal == "1") {
+                config.autoCloseOnUnfocus = true;
+            } else if (lowerVal == "false" || lowerVal == "0") {
+                config.autoCloseOnUnfocus = false;
+            } else {
+                unreadable = true;
+                break;
+            }
         } else {
             // Unreadable or unknown option
             unreadable = true;
@@ -154,7 +166,7 @@ FizzConfig loadConfig(const std::string& configPath) {
     }
 
     if (unreadable) {
-        return FizzConfig{ getDefaultSearchRoots(true), {} };
+        return FizzConfig{ getDefaultSearchRoots(true), {}, true };
     }
 
     if (!hasSearchRoots || config.searchRoots.empty()) {

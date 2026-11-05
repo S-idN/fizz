@@ -5,6 +5,7 @@
 struct FizzConfig {
     std::vector<std::string> searchRoots;
     std::vector<std::string> ignoreRules;
+    bool autoCloseOnUnfocus = true;
 };
 
 std::string getHomeDir();

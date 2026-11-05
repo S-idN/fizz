@@ -19,6 +19,9 @@
 #include "services/LoadFile.h"
 #include "services/FileSearch.h"
 #include "services/AppLauncher.h"
+#include "services/Config.h"
+#include "services/FocusTracker.h"
+#include "services/FontDiscovery.h"
 
 struct Tag { const char* label; ImVec4 color; };
 
@@ -47,12 +50,11 @@ static Tag classify(std::string_view path, ExecState state) {
     return {nullptr, {}};
 }
 
-constexpr int   kWidth   = 1650;
-constexpr int   kHeight  = 1400;
+constexpr int   kWidth   = 750;
+constexpr int   kHeight  = 480;
 constexpr int   kMaxHits = 50;
 constexpr float kRowH    = 24.f;
-constexpr float kFontPx  = 18.f;
-constexpr const char* kFont = "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf";
+constexpr float kFontPx  = kBaseFontSize;
 
 static const ImVec4 kBg     = {0.055f, 0.070f, 0.078f, 0.95f};
 static const ImVec4 kBorder = {0.16f,  0.22f,  0.24f,  1.00f};
@@ -87,6 +89,13 @@ static void applyTheme() {
 
 static void glfwError(int code, const char* msg) {
     fprintf(stderr, "GLFW error %d: %s\n", code, msg);
+}
+
+static void windowFocusCallback(GLFWwindow* window, int focused) {
+    auto* tracker = static_cast<FocusTracker*>(glfwGetWindowUserPointer(window));
+    if (tracker && tracker->handleFocusChange(focused)) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
 }
 
 static bool drawRow(std::string_view path, ExecState state, bool selected) {
@@ -126,6 +135,8 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
 
 int main() {
     signal(SIGCHLD, SIG_IGN);
+    FizzConfig config = loadConfig();
+    FocusTracker focusTracker(config.autoCloseOnUnfocus);
     loadIndexToMemory();
 
     glfwSetErrorCallback(glfwError);
@@ -143,6 +154,10 @@ int main() {
     GLFWwindow* window = glfwCreateWindow(kWidth, kHeight, "Fizz", nullptr, nullptr);
     if (!window) { fprintf(stderr, "window creation failed\n"); glfwTerminate(); return 1; }
 
+    glfwSetWindowSizeLimits(window, kWidth, kHeight, kWidth, kHeight);
+    glfwSetWindowUserPointer(window, &focusTracker);
+    glfwSetWindowFocusCallback(window, windowFocusCallback);
+
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
@@ -150,7 +165,10 @@ int main() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;                  
-    if (access(kFont, R_OK) == 0) io.Fonts->AddFontFromFileTTF(kFont, kFontPx);
+    std::string fontPath = resolveSystemFont();
+    if (fontPath.empty() || !io.Fonts->AddFontFromFileTTF(fontPath.c_str(), kFontPx)) {
+        io.Fonts->AddFontDefault();
+    }
     ImGui::StyleColorsDark();
     applyTheme();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
