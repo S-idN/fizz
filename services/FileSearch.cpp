@@ -57,7 +57,7 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
             strcmp(d_name, "Trash") == 0) {
             return true;
         }
-        if (strncmp(d_name, ".fizzLocalCache", 15) == 0 || strstr(d_name, ".tmp.") != nullptr) {
+        if (strncmp(d_name, ".fizzLocalCache", 15) == 0) {
             return true;
         }
     }

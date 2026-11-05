@@ -556,7 +556,7 @@ void test_binary_cache_deserialization_validation() {
     fs::remove_all(sandboxDir, ec);
     fs::create_directories(sandboxDir, ec);
 
-    auto writeCacheFile = [](const fs::path& p, const std::vector<fileEntity>& entries, const std::string& strPool) {
+    auto writeBinaryCache = [](const fs::path& p, const std::vector<fileEntity>& entries, const std::string& strPool) {
         std::ofstream out(p, std::ios::binary);
         size_t structCount = entries.size();
         size_t charCount = strPool.size();
@@ -570,86 +570,77 @@ void test_binary_cache_deserialization_validation() {
         }
     };
 
-    // 1. Entry offset completely out of bounds (f_offset >= charCount)
-    {
-        fs::path p = sandboxDir / "oob_offset.bin";
-        fileEntity ent{};
-        ent.f_offset = 100; // string pool is only 10 bytes
-        ent.f_length = 5;
-        writeCacheFile(p, {ent}, std::string(10, 'a'));
+    auto assertCorruptLoad = [&](const fs::path& p, const std::vector<fileEntity>& entries, const std::string& strPool) {
+        writeBinaryCache(p, entries, strPool);
         setBinaryCachePath(p.string());
         bool loaded = loadIndexToMemory();
         TEST_ASSERT(!loaded);
         TEST_ASSERT(fileStructTable.empty());
         TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    };
+
+    // 1. Entry offset completely out of bounds (f_offset >= charCount)
+    {
+        fileEntity ent{};
+        ent.f_offset = 100; // string pool is only 10 bytes
+        ent.f_length = 5;
+        assertCorruptLoad(sandboxDir / "oob_offset.bin", {ent}, std::string(10, 'a'));
     }
 
     // 2. Entry length zero
     {
-        fs::path p = sandboxDir / "zero_length.bin";
         fileEntity ent{};
         ent.f_offset = 0;
         ent.f_length = 0;
         std::string pool = "hello\0";
-        writeCacheFile(p, {ent}, std::string(pool.c_str(), 6));
-        setBinaryCachePath(p.string());
-        bool loaded = loadIndexToMemory();
-        TEST_ASSERT(!loaded);
-        TEST_ASSERT(fileStructTable.empty());
-        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+        assertCorruptLoad(sandboxDir / "zero_length.bin", {ent}, std::string(pool.c_str(), 6));
     }
 
     // 3. Entry offset + length exceeds buffer bounds
     {
-        fs::path p = sandboxDir / "oob_length.bin";
         fileEntity ent{};
         ent.f_offset = 5;
         ent.f_length = 10; // offset 5 + length 10 = 15 > 10
-        writeCacheFile(p, {ent}, std::string(10, 'a'));
-        setBinaryCachePath(p.string());
-        bool loaded = loadIndexToMemory();
-        TEST_ASSERT(!loaded);
-        TEST_ASSERT(fileStructTable.empty());
-        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+        assertCorruptLoad(sandboxDir / "oob_length.bin", {ent}, std::string(10, 'a'));
     }
 
     // 4. Arithmetic overflow in f_offset + f_length
     {
-        fs::path p = sandboxDir / "overflow_bounds.bin";
         fileEntity ent{};
         ent.f_offset = SIZE_MAX - 2;
         ent.f_length = 10;
-        writeCacheFile(p, {ent}, std::string(10, 'a'));
-        setBinaryCachePath(p.string());
-        bool loaded = loadIndexToMemory();
-        TEST_ASSERT(!loaded);
-        TEST_ASSERT(fileStructTable.empty());
-        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+        assertCorruptLoad(sandboxDir / "overflow_bounds.bin", {ent}, std::string(10, 'a'));
     }
 
     // 5. Missing null termination (last byte in slice is not '\0')
     {
-        fs::path p = sandboxDir / "not_null_terminated.bin";
         fileEntity ent{};
         ent.f_offset = 0;
         ent.f_length = 5;
-        std::string pool = "abcde"; // no null terminator
-        writeCacheFile(p, {ent}, pool);
-        setBinaryCachePath(p.string());
-        bool loaded = loadIndexToMemory();
-        TEST_ASSERT(!loaded);
-        TEST_ASSERT(fileStructTable.empty());
-        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+        assertCorruptLoad(sandboxDir / "not_null_terminated.bin", {ent}, "abcde");
     }
 
     // 6. Premature null termination inside entry
     {
-        fs::path p = sandboxDir / "premature_null.bin";
         fileEntity ent{};
         ent.f_offset = 0;
         ent.f_length = 6;
         const char rawPool[6] = {'a', 'b', '\0', 'd', 'e', '\0'};
-        writeCacheFile(p, {ent}, std::string(rawPool, 6));
+        assertCorruptLoad(sandboxDir / "premature_null.bin", {ent}, std::string(rawPool, 6));
+    }
+
+    // 7. Malformed header: charCount arithmetic overflow relative to structBytes
+    {
+        fs::path p = sandboxDir / "header_char_overflow.bin";
+        std::ofstream out(p, std::ios::binary);
+        size_t structCount = 1;
+        size_t charCount = SIZE_MAX - sizeof(fileEntity) + 1; // causes structBytes + charCount to overflow
+        out.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+        out.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
+        fileEntity dummy{};
+        out.write(reinterpret_cast<const char*>(&dummy), sizeof(dummy));
+        out.close();
+
         setBinaryCachePath(p.string());
         bool loaded = loadIndexToMemory();
         TEST_ASSERT(!loaded);

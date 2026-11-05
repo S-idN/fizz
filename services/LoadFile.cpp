@@ -46,8 +46,12 @@ bool loadIndexToMemory() {
     if (structCount > (SIZE_MAX / sizeof(fileEntity))) {
         return cleanupFailure();
     }
+    const size_t structBytes = structCount * sizeof(fileEntity);
+    if (charCount > (SIZE_MAX - structBytes)) {
+        return cleanupFailure();
+    }
 
-    const size_t expectedDataBytes = structCount * sizeof(fileEntity) + charCount;
+    const size_t expectedDataBytes = structBytes + charCount;
     const size_t actualDataBytes = static_cast<size_t>(fileSize) - headerSize;
     if (expectedDataBytes != actualDataBytes) {
         return cleanupFailure();
