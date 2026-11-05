@@ -247,7 +247,7 @@ tmbootpicker.efi
 nohup.out
 
 main
-tests/
+fizz_tests
 build/
 CMakeFiles/
 CMakeCache.txt
@@ -265,3 +265,9 @@ imgui.ini
 .idea/
 testMain
 cacheTest
+
+.agents/
+docs/
+skills-lock.json
+AGENTS.md
+GLOSSARY.md

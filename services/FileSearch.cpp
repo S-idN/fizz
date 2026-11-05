@@ -3,7 +3,8 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fstream>
-#include <re2/re2.h>
+#include <unistd.h>
+#include <pwd.h>
 #include <vector>
 #include "FileSearch.h"
 
@@ -24,11 +25,25 @@ const std::string hiddenPattern(R"((^|[/\\])\.[^/\\]+)");
 std::vector<fileEntity> fileStructTable;
 std::vector<char> fileTable;
 
-std::ofstream createLocalCache() {
-    if (access(".fizzLocalCache.bin", F_OK) == 0) {
-        return std::ofstream(".fizzLocalCache.bin", std::ios::binary | std::ios::trunc);
+static std::string s_CustomBinaryCachePath = "";
+
+std::string getBinaryCachePath() {
+    if (!s_CustomBinaryCachePath.empty()) {
+        return s_CustomBinaryCachePath;
     }
-    return std::ofstream(".fizzLocalCache.bin", std::ios::binary | std::ios::app);
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return std::string(home) + "/.fizzLocalCache.bin";
+    }
+    struct passwd* pw = getpwuid(getuid());
+    if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
+        return std::string(pw->pw_dir) + "/.fizzLocalCache.bin";
+    }
+    return "/tmp/.fizzLocalCache.bin";
+}
+
+void setBinaryCachePath(const std::string& path) {
+    s_CustomBinaryCachePath = path;
 }
 
 // //Weird wizard shit
@@ -120,24 +135,33 @@ void performSystemFileSearch(const std::string currPath) {
     closedir(dirp);
 }
 
-void systemFileSearch(const std::string currPath){
+void systemFileSearch(const std::string& currPath){
     fileStructTable.clear();
     fileTable.clear();
 
-    std::ofstream localCache = createLocalCache();
+    const std::string binaryCachePath = getBinaryCachePath();
+    std::ofstream binaryCacheStream(binaryCachePath, std::ios::binary | std::ios::trunc);
+    if (!binaryCacheStream.is_open()) {
+        std::cerr << "[ERROR] Could not open Binary Cache for writing: " << binaryCachePath << "\n";
+        return;
+    }
     
     performSystemFileSearch(currPath);
     //Error checking or somn idk add it later
     size_t structCount = fileStructTable.size();
     size_t charCount = fileTable.size();
 
-    localCache.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
-    localCache.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
+    binaryCacheStream.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+    binaryCacheStream.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
 
-    localCache.write(reinterpret_cast<const char*>(fileStructTable.data()), 
-	    structCount * sizeof(fileEntity));
+    if (structCount > 0) {
+        binaryCacheStream.write(reinterpret_cast<const char*>(fileStructTable.data()), 
+	        structCount * sizeof(fileEntity));
+    }
 
-    localCache.write(fileTable.data(), charCount);
+    if (charCount > 0) {
+        binaryCacheStream.write(fileTable.data(), charCount);
+    }
 
-    localCache.close();
+    binaryCacheStream.close();
 }

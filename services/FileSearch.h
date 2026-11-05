@@ -1,6 +1,8 @@
 #pragma once
 #include <iostream>
 #include <optional>
+#include <string>
+#include <vector>
 
 enum class ExecState : unsigned char {
     NotExecutable = 0,
@@ -16,4 +18,9 @@ struct fileEntity {
     ExecState f_execState;
 };
 
-void systemFileSearch(const std::string myName);
+extern std::vector<fileEntity> fileStructTable;
+
+void systemFileSearch(const std::string& currPath);
+
+std::string getBinaryCachePath();
+void setBinaryCachePath(const std::string& path);

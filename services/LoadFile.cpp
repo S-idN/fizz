@@ -3,44 +3,71 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+#include <cstdint>
 #include <string>
-
-// extern std::ifstream binaryFile;
-
-static std::string cachePath() {
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.fizzLocalCache.bin";
-}
 
 std::vector<char> g_InMemoryIndexBuffer;
 
-#include "FileSearch.h"   
-extern std::vector<fileEntity> fileStructTable;
-
-void loadIndexToMemory() {
-    std::ifstream f(cachePath(), std::ios::binary);
+bool loadIndexToMemory() {
+    const std::string path = getBinaryCachePath();
+    std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) {
-        std::cout << "[ERROR] Could not open " << cachePath() << "\n";
-        return;
+        std::cout << "[ERROR] Could not open Binary Cache: " << path << "\n";
+        fileStructTable.clear();
+        g_InMemoryIndexBuffer.clear();
+        return false;
+    }
+
+    auto cleanupFailure = [&]() -> bool {
+        fileStructTable.clear();
+        g_InMemoryIndexBuffer.clear();
+        std::cout << "[ERROR] Binary Cache is truncated or corrupted; rebuild it.\n";
+        return false;
+    };
+
+    f.seekg(0, std::ios::end);
+    std::streampos fileSize = f.tellg();
+    f.seekg(0, std::ios::beg);
+
+    const size_t headerSize = sizeof(size_t) * 2;
+    if (fileSize < static_cast<std::streampos>(headerSize)) {
+        return cleanupFailure();
     }
 
     size_t structCount = 0, charCount = 0;
     f.read(reinterpret_cast<char*>(&structCount), sizeof(structCount));
     f.read(reinterpret_cast<char*>(&charCount),   sizeof(charCount));
-    if (!f) return;
+    if (!f) {
+        return cleanupFailure();
+    }
+
+    // Guard against arithmetic overflow and unreasonable allocations
+    if (structCount > (SIZE_MAX / sizeof(fileEntity))) {
+        return cleanupFailure();
+    }
+
+    const size_t expectedDataBytes = structCount * sizeof(fileEntity) + charCount;
+    const size_t actualDataBytes = static_cast<size_t>(fileSize) - headerSize;
+    if (expectedDataBytes != actualDataBytes) {
+        return cleanupFailure();
+    }
 
     fileStructTable.resize(structCount);
-    f.read(reinterpret_cast<char*>(fileStructTable.data()),
-           structCount * sizeof(fileEntity));
+    if (structCount > 0) {
+        f.read(reinterpret_cast<char*>(fileStructTable.data()),
+               structCount * sizeof(fileEntity));
+    }
 
     g_InMemoryIndexBuffer.resize(charCount);
-    f.read(g_InMemoryIndexBuffer.data(), charCount);
-
-    if (!f) {           fileStructTable.clear();
-	g_InMemoryIndexBuffer.clear();
-	std::cout << "[ERROR] Cache is truncated or in an old format; rebuild it.\n";
-	return;
+    if (charCount > 0) {
+        f.read(g_InMemoryIndexBuffer.data(), charCount);
     }
+
+    if (!f) {
+        return cleanupFailure();
+    }
+
     std::cout << "[SYSTEM] Loaded " << structCount << " entries, "
-	<< charCount << " bytes.\n";
+              << charCount << " bytes.\n";
+    return true;
 }

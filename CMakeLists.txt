@@ -61,4 +61,20 @@ target_include_directories(fizzd PRIVATE
 target_link_libraries(fizzd PRIVATE Threads::Threads)
 target_link_options(fizzd PRIVATE -s)
 
+add_executable(fizz_tests
+    tests/test_binary_cache.cpp
+    services/FileSearch.cpp
+    services/LoadFile.cpp
+)
+
+target_include_directories(fizz_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/services
+)
+
+target_link_libraries(fizz_tests PRIVATE Threads::Threads)
+
+enable_testing()
+add_test(NAME fizz_tests COMMAND fizz_tests)
+
 install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)

@@ -3,5 +3,5 @@
 
 extern std::vector<char> g_InMemoryIndexBuffer;
 
-void loadIndexToMemory();
+bool loadIndexToMemory();
 
