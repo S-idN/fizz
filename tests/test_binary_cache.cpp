@@ -626,7 +626,10 @@ void test_custom_ignore_rules_matching() {
     std::cout << "[PASS] test_custom_ignore_rules_matching passed.\n";
 }
 
+void run_app_launcher_tests();
+
 int main() {
+    run_app_launcher_tests();
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
     test_config_parser_corrupt_and_unreadable();

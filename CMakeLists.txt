@@ -14,8 +14,8 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
 set(SERVICES_SOURCES
+    services/AppLauncher.cpp
     services/Config.cpp
-    services/FileCacheBuilder.cpp
     services/FileSearch.cpp
     services/LoadFile.cpp
     services/QueryOps.cpp
@@ -65,9 +65,11 @@ target_link_options(fizzd PRIVATE -s)
 
 add_executable(fizz_tests
     tests/test_binary_cache.cpp
+    tests/test_app_launcher.cpp
     services/Config.cpp
     services/FileSearch.cpp
     services/LoadFile.cpp
+    services/AppLauncher.cpp
 )
 
 target_include_directories(fizz_tests PRIVATE

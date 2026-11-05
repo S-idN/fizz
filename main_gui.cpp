@@ -18,6 +18,7 @@
 #include "services/QueryOps.h"
 #include "services/LoadFile.h"
 #include "services/FileSearch.h"
+#include "services/AppLauncher.h"
 
 struct Tag { const char* label; ImVec4 color; };
 
@@ -46,7 +47,6 @@ static Tag classify(std::string_view path, ExecState state) {
     return {nullptr, {}};
 }
 
-void daemonRunner();  
 constexpr int   kWidth   = 1650;
 constexpr int   kHeight  = 1400;
 constexpr int   kMaxHits = 50;
@@ -89,45 +89,6 @@ static void glfwError(int code, const char* msg) {
     fprintf(stderr, "GLFW error %d: %s\n", code, msg);
 }
 
-static const char* kOpenScript = R"SH(
-f="$1"
-mt=$(xdg-mime query filetype "$f")
-app=$(xdg-mime query default "$mt")
-[ -z "$app" ] && case "$mt" in text/*) app=$(xdg-mime query default text/plain) ;; esac
-
-desk=
-for d in "$HOME/.local/share/applications" /usr/local/share/applications /usr/share/applications; do
-  [ -n "$app" ] && [ -f "$d/$app" ] && { desk="$d/$app"; break; }
-done
-
-if [ -n "$desk" ] && grep -qi '^Terminal=true' "$desk"; then
-  T="${TERMINAL:-$(command -v kitty || command -v foot || command -v alacritty || command -v wezterm || command -v xterm)}"
-  exec "$T" -e xdg-open "$f"
-fi
-exec xdg-open "$f"
-)SH";
-
-static void openPath(std::string_view path, ExecState state, bool showFolder) {
-    std::string p(path);
-    if (showFolder) {
-        size_t slash = p.rfind('/');
-        p = slash == std::string::npos ? "." : slash == 0 ? "/" : p.substr(0, slash);
-    }
-    const bool run = !showFolder && state == ExecState::Executable
-                  && access(p.c_str(), X_OK) == 0;
-
-    if (fork() == 0) {
-        setsid();
-        int dn = open("/dev/null", O_RDWR);
-        if (dn >= 0) { dup2(dn, 0); dup2(dn, 1); dup2(dn, 2); }
-        if (run) execl(p.c_str(), p.c_str(), (char*)nullptr);
-        if (showFolder)
-            execlp("xdg-open", "xdg-open", p.c_str(), (char*)nullptr);
-        execl("/bin/sh", "sh", "-c", kOpenScript, "sh", p.c_str(), (char*)nullptr);
-        _exit(127);
-    }
-}
-
 static bool drawRow(std::string_view path, ExecState state, bool selected) {
     bool clicked = ImGui::Selectable("##row", selected,
                        ImGuiSelectableFlags_AllowDoubleClick, {0, kRowH});
@@ -166,7 +127,6 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
 int main() {
     signal(SIGCHLD, SIG_IGN);
     loadIndexToMemory();
-    std::thread(daemonRunner).detach();
 
     glfwSetErrorCallback(glfwError);
     if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND))
@@ -256,7 +216,7 @@ int main() {
 	ImGui::End();
 
         if (chosen >= 0) {
-            openPath(results[chosen].path, results[chosen].execState, io.KeyShift);
+            launchTarget(results[chosen].path, results[chosen].execState, io.KeyShift);
             glfwSetWindowShouldClose(window, 1);
         }
 
