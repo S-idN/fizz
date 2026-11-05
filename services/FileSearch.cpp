@@ -15,11 +15,24 @@
 
 namespace fs = std::filesystem;
 
+struct ParsedIgnoreRule {
+    std::string rule;
+    std::string component;
+    bool isPrefix;
+};
+
 // Ignore rules: skip system mount paths, common cache/vcs directories, and Binary Cache files
-static std::vector<std::string> s_CustomIgnoreRules;
+static std::vector<ParsedIgnoreRule> s_CustomIgnoreRules;
 
 void setCustomIgnoreRules(const std::vector<std::string>& rules) {
-    s_CustomIgnoreRules = rules;
+    s_CustomIgnoreRules.clear();
+    s_CustomIgnoreRules.reserve(rules.size());
+    for (const auto& r : rules) {
+        if (r.empty()) continue;
+        bool isPrefix = (r[0] == '/');
+        std::string comp = isPrefix ? "" : ("/" + r);
+        s_CustomIgnoreRules.push_back({r, std::move(comp), isPrefix});
+    }
 }
 
 static bool hasComponent(std::string_view fullpath, std::string_view comp) {
@@ -69,22 +82,19 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
 
     // Custom ignore rules configured by the user
     for (const auto& rule : s_CustomIgnoreRules) {
-        if (rule.empty()) continue;
-
-        if (rule[0] == '/') {
+        if (rule.isPrefix) {
             // Path prefix rule
-            if (fullpath.size() >= rule.size() && fullpath.substr(0, rule.size()) == rule) {
-                if (fullpath.size() == rule.size() || fullpath[rule.size()] == '/') {
+            if (fullpath.size() >= rule.rule.size() && fullpath.substr(0, rule.rule.size()) == rule.rule) {
+                if (fullpath.size() == rule.rule.size() || fullpath[rule.rule.size()] == '/') {
                     return true;
                 }
             }
         } else {
             // Directory / component name rule
-            if (d_name && rule == d_name) {
+            if (d_name && rule.rule == d_name) {
                 return true;
             }
-            std::string comp = "/" + rule;
-            if (hasComponent(fullpath, comp)) {
+            if (hasComponent(fullpath, rule.component)) {
                 return true;
             }
         }

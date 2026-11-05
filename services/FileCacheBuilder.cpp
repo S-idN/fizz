@@ -26,10 +26,25 @@ static volatile sig_atomic_t gStop = 0;
 static int inoFd;                                
 static std::unordered_map<int, std::string> dirOf;   
 
+static std::vector<std::string> resolveSearchRoots(const std::vector<std::string>& configuredRoots) {
+    std::vector<std::string> existingRoots;
+    for (const auto& root : configuredRoots) {
+        std::error_code ec;
+        if (fs::exists(root, ec) && fs::is_directory(root, ec)) {
+            existingRoots.push_back(root);
+        }
+    }
+    if (existingRoots.empty()) {
+        existingRoots = getDefaultSearchRoots(true);
+    }
+    return existingRoots;
+}
+
 static void rebuild() {
     auto config = loadConfig();
     setCustomIgnoreRules(config.ignoreRules);
-    systemFileSearch(config.searchRoots);
+    auto roots = resolveSearchRoots(config.searchRoots);
+    systemFileSearch(roots);
 }
 
 static void watch(const std::string& dir) {
@@ -65,9 +80,8 @@ static bool readEvents() {
 
             if (ev->mask & IN_IGNORED) { dirOf.erase(ev->wd); continue; }   
             if (ev->len) {
-                if (isPathIgnored("", ev->name)) continue;
                 std::string fullPath = dirOf.count(ev->wd) ? (dirOf[ev->wd] + "/" + ev->name) : "";
-                if (!fullPath.empty() && isPathIgnored(fullPath, ev->name)) continue;
+                if (isPathIgnored(fullPath, ev->name)) continue;
             }
 
             changed = true;
@@ -90,16 +104,7 @@ static void runDaemon() {
     auto config = loadConfig();
     setCustomIgnoreRules(config.ignoreRules);
 
-    std::vector<std::string> existingRoots;
-    for (const auto& root : config.searchRoots) {
-        std::error_code ec;
-        if (fs::exists(root, ec) && fs::is_directory(root, ec)) {
-            existingRoots.push_back(root);
-        }
-    }
-    if (existingRoots.empty()) {
-        existingRoots = getDefaultSearchRoots(true);
-    }
+    auto existingRoots = resolveSearchRoots(config.searchRoots);
     if (existingRoots.empty()) return;
 
     inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);

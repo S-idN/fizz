@@ -52,14 +52,16 @@ static std::string expandTilde(const std::string& path) {
     return path;
 }
 
-static std::string normalizePath(std::string path) {
-    path = trim(path);
-    path = stripQuotes(path);
-    path = expandTilde(path);
+static std::string stripTrailingSlashes(std::string path) {
     while (path.size() > 1 && path.back() == '/') {
         path.pop_back();
     }
     return path;
+}
+
+static std::string normalizePath(std::string path) {
+    path = expandTilde(path);
+    return stripTrailingSlashes(std::move(path));
 }
 
 static std::vector<std::string> parseCommaSeparatedList(const std::string& val, bool isPathList) {
@@ -69,12 +71,12 @@ static std::vector<std::string> parseCommaSeparatedList(const std::string& val, 
     while (std::getline(ss, item, ',')) {
         item = trim(item);
         item = stripQuotes(item);
-        if (isPathList || item.rfind("~/", 0) == 0 || item == "~") {
+        if (item.empty()) continue;
+
+        if (isPathList || item == "~" || item.rfind("~/", 0) == 0) {
             item = normalizePath(item);
         } else {
-            while (item.size() > 1 && item.back() == '/') {
-                item.pop_back();
-            }
+            item = stripTrailingSlashes(item);
         }
         if (!item.empty()) {
             items.push_back(item);
