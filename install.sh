@@ -5,7 +5,7 @@ BIN_DIR="${FIZZ_BIN_DIR:-$HOME/.local/bin}"
 UNIT_DIR="${FIZZ_UNIT_DIR:-$HOME/.config/systemd/user}"
 AUTOSTART_DIR="${FIZZ_AUTOSTART_DIR:-$HOME/.config/autostart}"
 CONFIG_DIR="${FIZZ_CONFIG_DIR:-$HOME/.config/fizz}"
-CACHE_FILE="${FIZZ_CACHE_FILE:-$HOME/.fizzLocalCache.bin}"
+BINARY_CACHE_PATH="${FIZZ_BINARY_CACHE:-$HOME/.fizzLocalCache.bin}"
 HYPR_CONF="${FIZZ_HYPR_CONF:-$HOME/.config/hypr/hyprland.conf}"
 SWAY_CONF="${FIZZ_SWAY_CONF:-$HOME/.config/sway/config}"
 I3_CONF="${FIZZ_I3_CONF:-$HOME/.config/i3/config}"
@@ -49,9 +49,21 @@ has_opengl() {
     return 1
 }
 
+has_cpp17() {
+    local compiler
+    for compiler in c++ g++ clang++; do
+        if command -v "$compiler" >/dev/null; then
+            if "$compiler" -std=c++17 -E -x c++ /dev/null -o /dev/null >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
 deps_missing() {
     command -v cmake >/dev/null || return 0
-    (command -v c++ >/dev/null || command -v g++ >/dev/null || command -v clang++ >/dev/null) || return 0
+    has_cpp17        || return 0
     (command -v make >/dev/null || command -v ninja >/dev/null) || return 0
     has_glfw || return 0
     has_opengl || return 0
@@ -79,8 +91,6 @@ remove_wm_hotkey() {
     [ -f "$conf" ] || return 0
 
     sed -i "/$SENTINEL_BEGIN/,/$SENTINEL_END/d" "$conf"
-    sed -i '/# --- Fizz Search Hotkey ---/d' "$conf"
-    sed -i '/fizz-search/d' "$conf"
 }
 
 hotkey_hyprland() {
@@ -115,11 +125,25 @@ hotkey_gnome() {
 }
 
 setup_hotkeys() {
-    hotkey_hyprland || hotkey_sway || hotkey_i3 || hotkey_gnome || {
-        echo "Couldn't set a hotkey automatically for this desktop."
-        echo "In your keyboard settings (KDE: System Settings -> Shortcuts), bind a key to:"
-        echo "  $HOTKEY_CMD"
-    }
+    local configured=0
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        *GNOME*)
+            hotkey_gnome && configured=1 ;;
+        *Hyprland*)
+            hotkey_hyprland && configured=1 ;;
+        *sway*)
+            hotkey_sway && configured=1 ;;
+        *i3*)
+            hotkey_i3 && configured=1 ;;
+    esac
+
+    if [ "$configured" -eq 0 ]; then
+        hotkey_hyprland || hotkey_sway || hotkey_i3 || hotkey_gnome || {
+            echo "Couldn't set a hotkey automatically for this desktop."
+            echo "In your keyboard settings (KDE: System Settings -> Shortcuts), bind a key to:"
+            echo "  $HOTKEY_CMD"
+        }
+    fi
 }
 
 unhotkey_all() {
@@ -134,14 +158,19 @@ unhotkey_all() {
 }
 
 install_service() {
+    local exec_path="$BIN_DIR/fizzd"
+    if [ "$BIN_DIR" = "$HOME/.local/bin" ]; then
+        exec_path="%h/.local/bin/fizzd"
+    fi
+
     if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
         mkdir -p "$UNIT_DIR"
-        cat > "$UNIT_DIR/fizzd.service" <<'EOF'
+        cat > "$UNIT_DIR/fizzd.service" <<EOF
 [Unit]
 Description=Fizz file index daemon
 
 [Service]
-ExecStart=%h/.local/bin/fizzd
+ExecStart=$exec_path
 Restart=on-failure
 RestartSec=5
 Nice=19
@@ -196,12 +225,12 @@ uninstall_fizz() {
     uninstall_binaries
 
     if [ "$purge" -eq 1 ]; then
-        echo "Purging configuration and binary cache..."
+        echo "Purging configuration and Binary Cache..."
         rm -rf "$CONFIG_DIR"
-        rm -f "$CACHE_FILE"
-        echo "Purged $CONFIG_DIR and $CACHE_FILE."
+        rm -f "$BINARY_CACHE_PATH"
+        echo "Purged $CONFIG_DIR and $BINARY_CACHE_PATH."
     else
-        echo "Preserved configuration ($CONFIG_DIR) and cache ($CACHE_FILE)."
+        echo "Preserved configuration ($CONFIG_DIR) and Binary Cache ($BINARY_CACHE_PATH)."
         echo "Pass --purge to remove them."
     fi
     echo "Fizz uninstalled successfully."
@@ -216,6 +245,14 @@ build_and_install() {
     install -m755 "$src_dir/build/main_gui" "$BIN_DIR/fizz-search"
     install -m755 "$src_dir/build/fizzd"    "$BIN_DIR/fizzd"
     echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
+}
+
+run_install_deps() {
+    local cmd
+    cmd="$(deps_command)"
+    [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
+    echo "Running: $cmd"
+    $cmd
 }
 
 main() {
@@ -238,7 +275,6 @@ main() {
             --no-hotkey) no_hotkey=1 ;;
             --uninstall) uninstall=1 ;;
             --purge) uninstall=1; purge=1 ;;
-            --source-only) return 0 ;;
             *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
         shift
@@ -250,28 +286,34 @@ main() {
     fi
 
     if [ "$install_deps" -eq 1 ]; then
-        cmd="$(deps_command)"
-        [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
-        echo "Running: $cmd"
-        $cmd
+        run_install_deps
     fi
 
     if deps_missing; then
-        echo "Missing build dependencies. Install them with:"
-        echo "  $(deps_command)"
-        if [ -t 0 ] && [ "$install_deps" -eq 0 ]; then
-            printf "Install missing dependencies using sudo? [y/N] "
-            read -r reply
-            if [[ "$reply" =~ ^[Yy]$ ]]; then
-                cmd="$(deps_command)"
-                [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
-                echo "Running: $cmd"
-                $cmd
+        local cmd
+        cmd="$(deps_command)"
+        echo "Missing build dependencies."
+        if [ -n "$cmd" ]; then
+            echo "Install them with:"
+            echo "  $cmd"
+            if [ -t 0 ] && [ "$install_deps" -eq 0 ]; then
+                printf "Install missing dependencies using sudo? [y/N] "
+                read -r reply
+                if [[ "$reply" =~ ^[Yy]$ ]]; then
+                    run_install_deps
+                    if deps_missing; then
+                        echo "Dependencies are still missing after package installation."
+                        exit 1
+                    fi
+                else
+                    exit 1
+                fi
             else
+                echo "Then re-run ./install.sh (or run ./install.sh --install-deps to do it for you, using sudo)."
                 exit 1
             fi
         else
-            echo "Then re-run ./install.sh (or run ./install.sh --install-deps to do it for you, using sudo)."
+            echo "Unknown package manager; please install dependencies manually."
             exit 1
         fi
     fi

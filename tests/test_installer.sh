@@ -63,7 +63,7 @@ test_deps_package_commands() {
     # Test Fedora
     local out
     out=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 [ \"\$2\" = \"dnf\" ] && return 0 || return 1
@@ -76,7 +76,7 @@ test_deps_package_commands() {
 
     # Test openSUSE
     out=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 [ \"\$2\" = \"zypper\" ] && return 0 || return 1
@@ -92,7 +92,7 @@ test_deps_missing_detection() {
     # 1. Missing build tool (make or ninja)
     local ret
     ret=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 case \"\$2\" in
@@ -104,6 +104,7 @@ test_deps_missing_detection() {
             fi
             builtin command \"\$@\"
         }
+        has_cpp17() { return 0; }
         has_glfw() { return 0; }
         has_opengl() { return 0; }
         if deps_missing; then echo 'missing'; else echo 'ok'; fi
@@ -112,7 +113,7 @@ test_deps_missing_detection() {
 
     # 2. Missing OpenGL headers
     ret=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 case \"\$2\" in
@@ -123,35 +124,36 @@ test_deps_missing_detection() {
             fi
             builtin command \"\$@\"
         }
+        has_cpp17() { return 0; }
         has_glfw() { return 0; }
         has_opengl() { return 1; }
         if deps_missing; then echo 'missing'; else echo 'ok'; fi
     ")
     assert_eq "missing" "$ret" "deps_missing detects missing OpenGL headers"
 
-    # 3. Missing compiler
+    # 3. Missing C++17 compiler
     ret=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 case \"\$2\" in
                     cmake|make) return 0 ;;
-                    c++|g++|clang++) return 1 ;;
                     pkg-config) return 0 ;;
                     *) return 1 ;;
                 esac
             fi
             builtin command \"\$@\"
         }
+        has_cpp17() { return 1; }
         has_glfw() { return 0; }
         has_opengl() { return 0; }
         if deps_missing; then echo 'missing'; else echo 'ok'; fi
     ")
-    assert_eq "missing" "$ret" "deps_missing detects missing C++ compiler"
+    assert_eq "missing" "$ret" "deps_missing detects missing C++17 compiler"
 
     # 4. Missing GLFW
     ret=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 case \"\$2\" in
@@ -162,6 +164,7 @@ test_deps_missing_detection() {
             fi
             builtin command \"\$@\"
         }
+        has_cpp17() { return 0; }
         has_glfw() { return 1; }
         has_opengl() { return 0; }
         if deps_missing; then echo 'missing'; else echo 'ok'; fi
@@ -170,7 +173,7 @@ test_deps_missing_detection() {
 
     # 5. All present
     ret=$(bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         command() {
             if [ \"\$1\" = \"-v\" ]; then
                 case \"\$2\" in
@@ -181,6 +184,7 @@ test_deps_missing_detection() {
             fi
             builtin command \"\$@\"
         }
+        has_cpp17() { return 0; }
         has_glfw() { return 0; }
         has_opengl() { return 0; }
         if deps_missing; then echo 'missing'; else echo 'ok'; fi
@@ -188,8 +192,22 @@ test_deps_missing_detection() {
     assert_eq "ok" "$ret" "deps_missing returns ok when all dependencies are present"
 }
 
+test_deps_missing_non_interactive_exit() {
+    local out
+    local status=0
+    out=$(bash -c "
+        source '$INSTALL_SH'
+        deps_missing() { return 0; }
+        deps_command() { echo 'sudo dnf install dummy'; }
+        main
+    " </dev/null 2>&1) || status=$?
+    assert_eq "1" "$status" "Non-interactive run with missing deps exits with 1"
+    assert_contains "Missing build dependencies" "$out" "Non-interactive run prints missing dependencies notice"
+}
+
 test_deps_package_commands
 test_deps_missing_detection
+test_deps_missing_non_interactive_exit
 
 # -----------------------------------------------------------------------------
 # Seam 2: GNOME Shortcut Registration Tests
@@ -314,7 +332,7 @@ EOF
 
     # 1. Inject hotkey
     bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         inject_wm_hotkey '$hypr_conf' 'bind = CTRL SUPER, SPACE, exec, /mock/bin/fizz-search'
     "
     local content
@@ -325,7 +343,7 @@ EOF
 
     # 2. Idempotency on update run - do not duplicate block
     bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         inject_wm_hotkey '$hypr_conf' 'bind = CTRL SUPER, SPACE, exec, /mock/bin/fizz-search'
     "
     local count
@@ -336,7 +354,7 @@ EOF
     # User edits binding to SUPER, SPACE
     sed -i 's/CTRL SUPER, SPACE/SUPER, SPACE/' "$hypr_conf"
     bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         inject_wm_hotkey '$hypr_conf' 'bind = CTRL SUPER, SPACE, exec, /mock/bin/fizz-search'
     "
     content=$(cat "$hypr_conf")
@@ -344,7 +362,7 @@ EOF
 
     # 4. Clean removal
     bash -c "
-        source '$INSTALL_SH' --source-only 2>/dev/null || source '$INSTALL_SH'
+        source '$INSTALL_SH'
         remove_wm_hotkey '$hypr_conf'
     "
     content=$(cat "$hypr_conf")
@@ -355,7 +373,20 @@ EOF
     rm -rf "$tmp_dir"
 }
 
+test_desktop_detection_priority() {
+    local out
+    out=$(bash -c "
+        source '$INSTALL_SH'
+        export XDG_CURRENT_DESKTOP='GNOME'
+        hotkey_gnome() { echo 'gnome_called'; return 0; }
+        hotkey_hyprland() { echo 'hyprland_called'; return 0; }
+        setup_hotkeys
+    ")
+    assert_eq "gnome_called" "$out" "GNOME desktop is prioritized when XDG_CURRENT_DESKTOP contains GNOME"
+}
+
 test_wm_sentinel_injection_and_removal
+test_desktop_detection_priority
 
 # -----------------------------------------------------------------------------
 # Seam 4: Lifecycle & Sandbox Tests (Install, Update, Uninstall, Purge)
