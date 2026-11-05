@@ -27,6 +27,9 @@ std::vector<std::string> getDefaultSearchRoots(bool existingOnly = true);
 
 bool isPathIgnored(std::string_view fullpath, const char* d_name = nullptr);
 
+void setCustomIgnoreRules(const std::vector<std::string>& rules);
+const std::vector<std::string>& getCustomIgnoreRules();
+
 std::string_view classifyPath(std::string_view path, ExecState state);
 
 std::string getBinaryCachePath();

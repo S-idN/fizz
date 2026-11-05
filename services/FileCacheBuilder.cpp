@@ -11,6 +11,7 @@
 #include <string>
 #include <unordered_map>
 #include "FileSearch.h"
+#include "Config.h"
 
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
@@ -26,7 +27,9 @@ static int inoFd;
 static std::unordered_map<int, std::string> dirOf;   
 
 static void rebuild() {
-    systemFileSearch(getDefaultSearchRoots());
+    auto config = loadConfig();
+    setCustomIgnoreRules(config.ignoreRules);
+    systemFileSearch(config.searchRoots);
 }
 
 static void watch(const std::string& dir) {
@@ -78,11 +81,20 @@ static int acquireLock() {
 }
 
 static void runDaemon() {
-    auto roots = getDefaultSearchRoots(true);
-    if (roots.empty()) return;
+    auto config = loadConfig();
+    setCustomIgnoreRules(config.ignoreRules);
+
+    std::vector<std::string> existingRoots;
+    for (const auto& root : config.searchRoots) {
+        std::error_code ec;
+        if (fs::exists(root, ec) && fs::is_directory(root, ec)) {
+            existingRoots.push_back(root);
+        }
+    }
+    if (existingRoots.empty()) return;
 
     inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    for (const auto& root : roots) {
+    for (const auto& root : existingRoots) {
         watchTree(root);
     }
 

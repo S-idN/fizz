@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
+#include "services/Config.h"
 
 namespace fs = std::filesystem;
 
@@ -358,7 +359,224 @@ void test_dual_search_roots_and_traversal() {
     std::cout << "[PASS] test_dual_search_roots_and_traversal passed.\n";
 }
 
+void test_config_parser_defaults_and_missing_file() {
+    std::cout << "[TEST] Running test_config_parser_defaults_and_missing_file...\n";
+
+    const char* home = std::getenv("HOME");
+    std::string expectedHome = home ? home : "";
+    const char* xdgConfigHome = std::getenv("XDG_CONFIG_HOME");
+    std::string expectedConfig = (xdgConfigHome && xdgConfigHome[0] != '\0')
+        ? std::string(xdgConfigHome) + "/fizz/fizz.conf"
+        : expectedHome + "/.config/fizz/fizz.conf";
+
+    // 1. By default, getConfigPath() resolves to expected ~/.config/fizz/fizz.conf
+    TEST_ASSERT(getConfigPath() == expectedConfig);
+
+    // 2. setConfigPath override
+    std::string overridePath = "/tmp/nonexistent_fizz.conf";
+    setConfigPath(overridePath);
+    TEST_ASSERT(getConfigPath() == overridePath);
+
+    // 3. Loading missing config falls back cleanly to defaults without error
+    FizzConfig config = loadConfig(overridePath);
+    auto defaultRoots = getDefaultSearchRoots(true);
+    TEST_ASSERT(config.searchRoots == defaultRoots);
+    TEST_ASSERT(config.ignoreRules.empty());
+
+    // 4. Resetting config path override restores default
+    setConfigPath("");
+    TEST_ASSERT(getConfigPath() == expectedConfig);
+
+    std::cout << "[PASS] test_config_parser_defaults_and_missing_file passed.\n";
+}
+
+void test_config_parser_custom_values() {
+    std::cout << "[TEST] Running test_config_parser_custom_values...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_custom";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    fs::path confFile = tempDir / "fizz.conf";
+    {
+        std::ofstream out(confFile);
+        out << "# Fizz configuration test\n";
+        out << "\n";
+        out << "; Another comment line\n";
+        out << "search_roots = ~/projects, /mnt/storage, /opt/tools/\n";
+        out << "ignore_rules = .git, node_modules, build, /data/tmp\n";
+    }
+
+    FizzConfig config = loadConfig(confFile.string());
+
+    const char* home = std::getenv("HOME");
+    std::string expectedHome = home ? home : "";
+    std::string expectedExpandedHome = expectedHome + "/projects";
+
+    TEST_ASSERT(config.searchRoots.size() == 3);
+    TEST_ASSERT(config.searchRoots[0] == expectedExpandedHome);
+    TEST_ASSERT(config.searchRoots[1] == "/mnt/storage");
+    TEST_ASSERT(config.searchRoots[2] == "/opt/tools"); // normalized without trailing slash
+
+    TEST_ASSERT(config.ignoreRules.size() == 4);
+    TEST_ASSERT(config.ignoreRules[0] == ".git");
+    TEST_ASSERT(config.ignoreRules[1] == "node_modules");
+    TEST_ASSERT(config.ignoreRules[2] == "build");
+    TEST_ASSERT(config.ignoreRules[3] == "/data/tmp");
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_parser_custom_values passed.\n";
+}
+
+void test_config_parser_corrupt_and_unreadable() {
+    std::cout << "[TEST] Running test_config_parser_corrupt_and_unreadable...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_corrupt";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    // 1. File with gibberish and missing values
+    fs::path confFile = tempDir / "malformed.conf";
+    {
+        std::ofstream out(confFile);
+        out << "this is not key value\n";
+        out << "invalid syntax ??? !!!\n";
+        out << "search_roots = \n"; // empty
+        out << "ignore_rules = \n"; // empty
+    }
+
+    FizzConfig config = loadConfig(confFile.string());
+    auto defaultRoots = getDefaultSearchRoots(true);
+    TEST_ASSERT(config.searchRoots == defaultRoots);
+    TEST_ASSERT(config.ignoreRules.empty());
+
+    // 2. Binary / unreadable data
+    fs::path binConf = tempDir / "binary.conf";
+    {
+        std::ofstream out(binConf, std::ios::binary);
+        char binData[] = { '\0', '\1', '\x80', '\xFF', '\x05' };
+        out.write(binData, sizeof(binData));
+    }
+
+    FizzConfig binConfig = loadConfig(binConf.string());
+    TEST_ASSERT(binConfig.searchRoots == defaultRoots);
+    TEST_ASSERT(binConfig.ignoreRules.empty());
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_parser_corrupt_and_unreadable passed.\n";
+}
+
+void test_config_custom_roots_and_ignores_traversal() {
+    std::cout << "[TEST] Running test_config_custom_roots_and_ignores_traversal...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_custom_roots_ignores";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+
+    fs::path customRoot1 = sandboxDir / "custom_root1";
+    fs::path customRoot2 = sandboxDir / "custom_root2";
+    fs::create_directories(customRoot1 / "normal_dir", ec);
+    fs::create_directories(customRoot1 / "ignored_by_name", ec);
+    fs::create_directories(customRoot1 / ".git", ec); // default ignore
+    fs::create_directories(customRoot2 / "prefix_ignored", ec);
+
+    // Files in customRoot1
+    {
+        std::ofstream out(customRoot1 / "file_a.txt");
+        out << "custom root 1 file\n";
+    }
+    {
+        std::ofstream out(customRoot1 / "normal_dir" / "file_b.txt");
+        out << "nested normal file\n";
+    }
+    {
+        std::ofstream out(customRoot1 / "ignored_by_name" / "secret.txt");
+        out << "should be ignored by name\n";
+    }
+    {
+        std::ofstream out(customRoot1 / ".git" / "HEAD");
+        out << "ref: refs/heads/main\n";
+    }
+
+    // Files in customRoot2
+    {
+        std::ofstream out(customRoot2 / "app.desktop");
+        out << "[Desktop Entry]\nName=CustomApp\nType=Application\n";
+    }
+    {
+        std::ofstream out(customRoot2 / "prefix_ignored" / "should_not_index.txt");
+        out << "should be ignored by path prefix\n";
+    }
+
+    fs::path confFile = sandboxDir / "test_fizz.conf";
+    {
+        std::ofstream out(confFile);
+        out << "search_roots = " << customRoot1.string() << ", " << customRoot2.string() << "\n";
+        out << "ignore_rules = ignored_by_name, " << (customRoot2 / "prefix_ignored").string() << "\n";
+    }
+
+    fs::path cachePath = sandboxDir / "custom_traversal_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    setConfigPath(confFile.string());
+
+    // Load config and apply
+    FizzConfig config = loadConfig();
+    TEST_ASSERT(config.searchRoots.size() == 2);
+    TEST_ASSERT(config.ignoreRules.size() == 2);
+
+    setCustomIgnoreRules(config.ignoreRules);
+    systemFileSearch(config.searchRoots);
+
+    TEST_ASSERT(fs::exists(cachePath));
+    TEST_ASSERT(fs::file_size(cachePath) > 0);
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    bool foundFileA = false;
+    bool foundFileB = false;
+    bool foundAppDesktop = false;
+    bool foundSecret = false;
+    bool foundGitHead = false;
+    bool foundPrefixIgnored = false;
+
+    for (const auto& ent : fileStructTable) {
+        TEST_ASSERT(ent.f_offset < g_InMemoryIndexBuffer.size());
+        const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
+        std::string pathStr(namePtr);
+
+        if (pathStr.find("file_a.txt") != std::string::npos) foundFileA = true;
+        if (pathStr.find("file_b.txt") != std::string::npos) foundFileB = true;
+        if (pathStr.find("app.desktop") != std::string::npos) {
+            foundAppDesktop = true;
+            TEST_ASSERT(classifyPath(pathStr, ent.f_execState) == "app");
+        }
+        if (pathStr.find("secret.txt") != std::string::npos) foundSecret = true;
+        if (pathStr.find("HEAD") != std::string::npos) foundGitHead = true;
+        if (pathStr.find("should_not_index.txt") != std::string::npos) foundPrefixIgnored = true;
+    }
+
+    TEST_ASSERT(foundFileA);
+    TEST_ASSERT(foundFileB);
+    TEST_ASSERT(foundAppDesktop);
+    TEST_ASSERT(!foundSecret);        // Custom Ignore Rule (directory name)
+    TEST_ASSERT(!foundPrefixIgnored); // Custom Ignore Rule (path prefix)
+    TEST_ASSERT(!foundGitHead);       // Default Ignore Rule (.git)
+
+    // Reset settings and cleanup
+    setBinaryCachePath("");
+    setConfigPath("");
+    setCustomIgnoreRules({});
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_config_custom_roots_and_ignores_traversal passed.\n";
+}
+
 int main() {
+    test_config_parser_defaults_and_missing_file();
+    test_config_parser_custom_values();
+    test_config_parser_corrupt_and_unreadable();
+    test_config_custom_roots_and_ignores_traversal();
     test_file_classification();
     test_default_search_roots();
     test_dual_search_roots_and_traversal();

@@ -15,6 +15,16 @@
 namespace fs = std::filesystem;
 
 // Ignore rules: skip system mount paths, common cache/vcs directories, and Binary Cache files
+static std::vector<std::string> s_CustomIgnoreRules;
+
+void setCustomIgnoreRules(const std::vector<std::string>& rules) {
+    s_CustomIgnoreRules = rules;
+}
+
+const std::vector<std::string>& getCustomIgnoreRules() {
+    return s_CustomIgnoreRules;
+}
+
 bool isPathIgnored(std::string_view fullpath, const char* d_name) {
     if (d_name) {
         if (strcmp(d_name, ".cache") == 0 ||
@@ -51,6 +61,34 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
             }
         }
     }
+
+    // Custom ignore rules configured by the user
+    for (const auto& rule : s_CustomIgnoreRules) {
+        if (rule.empty()) continue;
+
+        if (rule[0] == '/') {
+            // Path prefix rule
+            if (fullpath.size() >= rule.size() && fullpath.substr(0, rule.size()) == rule) {
+                if (fullpath.size() == rule.size() || fullpath[rule.size()] == '/') {
+                    return true;
+                }
+            }
+        } else {
+            // Directory / component name rule
+            if (d_name && rule == d_name) {
+                return true;
+            }
+            std::string comp = "/" + rule;
+            size_t pos = fullpath.find(comp);
+            if (pos != std::string_view::npos) {
+                size_t end = pos + comp.size();
+                if (end == fullpath.size() || fullpath[end] == '/') {
+                    return true;
+                }
+            }
+        }
+    }
+
     return false;
 }
 
