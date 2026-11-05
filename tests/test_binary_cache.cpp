@@ -450,6 +450,17 @@ void test_config_parser_corrupt_and_unreadable() {
     TEST_ASSERT(config.searchRoots == defaultRoots);
     TEST_ASSERT(config.ignoreRules.empty());
 
+    // 1b. File with an unreadable/unrecognized option triggers clean fallback
+    fs::path unreadableOptFile = tempDir / "unreadable_opt.conf";
+    {
+        std::ofstream out(unreadableOptFile);
+        out << "search_roots = /tmp/valid\n";
+        out << "unknown_unreadable_setting = true\n";
+    }
+    FizzConfig optConfig = loadConfig(unreadableOptFile.string());
+    TEST_ASSERT(optConfig.searchRoots == defaultRoots);
+    TEST_ASSERT(optConfig.ignoreRules.empty());
+
     // 2. Binary / unreadable data
     fs::path binConf = tempDir / "binary.conf";
     {
@@ -477,6 +488,7 @@ void test_config_custom_roots_and_ignores_traversal() {
     fs::path customRoot2 = sandboxDir / "custom_root2";
     fs::create_directories(customRoot1 / "normal_dir", ec);
     fs::create_directories(customRoot1 / "ignored_by_name", ec);
+    fs::create_directories(customRoot1 / "build_prefix" / "build", ec); // tests recurring component search
     fs::create_directories(customRoot1 / ".git", ec); // default ignore
     fs::create_directories(customRoot2 / "prefix_ignored", ec);
 
@@ -492,6 +504,10 @@ void test_config_custom_roots_and_ignores_traversal() {
     {
         std::ofstream out(customRoot1 / "ignored_by_name" / "secret.txt");
         out << "should be ignored by name\n";
+    }
+    {
+        std::ofstream out(customRoot1 / "build_prefix" / "build" / "nested_build_artifact.o");
+        out << "object file\n";
     }
     {
         std::ofstream out(customRoot1 / ".git" / "HEAD");
@@ -512,7 +528,7 @@ void test_config_custom_roots_and_ignores_traversal() {
     {
         std::ofstream out(confFile);
         out << "search_roots = " << customRoot1.string() << ", " << customRoot2.string() << "\n";
-        out << "ignore_rules = ignored_by_name, " << (customRoot2 / "prefix_ignored").string() << "\n";
+        out << "ignore_rules = ignored_by_name, build, " << (customRoot2 / "prefix_ignored").string() << "\n";
     }
 
     fs::path cachePath = sandboxDir / "custom_traversal_cache.bin";
@@ -522,7 +538,7 @@ void test_config_custom_roots_and_ignores_traversal() {
     // Load config and apply
     FizzConfig config = loadConfig();
     TEST_ASSERT(config.searchRoots.size() == 2);
-    TEST_ASSERT(config.ignoreRules.size() == 2);
+    TEST_ASSERT(config.ignoreRules.size() == 3);
 
     setCustomIgnoreRules(config.ignoreRules);
     systemFileSearch(config.searchRoots);
@@ -539,6 +555,7 @@ void test_config_custom_roots_and_ignores_traversal() {
     bool foundSecret = false;
     bool foundGitHead = false;
     bool foundPrefixIgnored = false;
+    bool foundBuildArtifact = false;
 
     for (const auto& ent : fileStructTable) {
         TEST_ASSERT(ent.f_offset < g_InMemoryIndexBuffer.size());
@@ -554,6 +571,7 @@ void test_config_custom_roots_and_ignores_traversal() {
         if (pathStr.find("secret.txt") != std::string::npos) foundSecret = true;
         if (pathStr.find("HEAD") != std::string::npos) foundGitHead = true;
         if (pathStr.find("should_not_index.txt") != std::string::npos) foundPrefixIgnored = true;
+        if (pathStr.find("nested_build_artifact.o") != std::string::npos) foundBuildArtifact = true;
     }
 
     TEST_ASSERT(foundFileA);
@@ -562,6 +580,7 @@ void test_config_custom_roots_and_ignores_traversal() {
     TEST_ASSERT(!foundSecret);        // Custom Ignore Rule (directory name)
     TEST_ASSERT(!foundPrefixIgnored); // Custom Ignore Rule (path prefix)
     TEST_ASSERT(!foundGitHead);       // Default Ignore Rule (.git)
+    TEST_ASSERT(!foundBuildArtifact); // Custom Ignore Rule with prior partial component match
 
     // Reset settings and cleanup
     setBinaryCachePath("");

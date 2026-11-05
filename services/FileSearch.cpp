@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <filesystem>
 #include "FileSearch.h"
+#include "Config.h"
 
 namespace fs = std::filesystem;
 
@@ -21,8 +22,16 @@ void setCustomIgnoreRules(const std::vector<std::string>& rules) {
     s_CustomIgnoreRules = rules;
 }
 
-const std::vector<std::string>& getCustomIgnoreRules() {
-    return s_CustomIgnoreRules;
+static bool hasComponent(std::string_view fullpath, std::string_view comp) {
+    size_t pos = fullpath.find(comp);
+    while (pos != std::string_view::npos) {
+        size_t end = pos + comp.size();
+        if (end == fullpath.size() || fullpath[end] == '/') {
+            return true;
+        }
+        pos = fullpath.find(comp, pos + 1);
+    }
+    return false;
 }
 
 bool isPathIgnored(std::string_view fullpath, const char* d_name) {
@@ -53,12 +62,8 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
         "/.local/share/Trash"
     };
     for (auto comp : componentIgnores) {
-        size_t pos = fullpath.find(comp);
-        if (pos != std::string_view::npos) {
-            size_t end = pos + comp.size();
-            if (end == fullpath.size() || fullpath[end] == '/') {
-                return true;
-            }
+        if (hasComponent(fullpath, comp)) {
+            return true;
         }
     }
 
@@ -79,12 +84,8 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
                 return true;
             }
             std::string comp = "/" + rule;
-            size_t pos = fullpath.find(comp);
-            if (pos != std::string_view::npos) {
-                size_t end = pos + comp.size();
-                if (end == fullpath.size() || fullpath[end] == '/') {
-                    return true;
-                }
+            if (hasComponent(fullpath, comp)) {
+                return true;
             }
         }
     }
@@ -96,18 +97,6 @@ std::vector<fileEntity> fileStructTable;
 std::vector<char> fileTable;
 
 static std::string s_CustomBinaryCachePath = "";
-
-static std::string getHomeDir() {
-    const char* home = std::getenv("HOME");
-    if (home && home[0] != '\0') {
-        return home;
-    }
-    struct passwd* pw = getpwuid(getuid());
-    if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
-        return pw->pw_dir;
-    }
-    return "";
-}
 
 std::vector<std::string> getDefaultSearchRoots(bool existingOnly) {
     std::vector<std::string> candidates;

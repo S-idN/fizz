@@ -91,6 +91,9 @@ static void runDaemon() {
             existingRoots.push_back(root);
         }
     }
+    if (existingRoots.empty()) {
+        existingRoots = getDefaultSearchRoots(true);
+    }
     if (existingRoots.empty()) return;
 
     inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);

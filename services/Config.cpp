@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 
 static std::string s_CustomConfigPath = "";
 
-static std::string getHomeDir() {
+std::string getHomeDir() {
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
         return home;
@@ -69,7 +69,7 @@ static std::vector<std::string> parseCommaSeparatedList(const std::string& val, 
     while (std::getline(ss, item, ',')) {
         item = trim(item);
         item = stripQuotes(item);
-        if (isPathList) {
+        if (isPathList || item.rfind("~/", 0) == 0 || item == "~") {
             item = normalizePath(item);
         } else {
             while (item.size() > 1 && item.back() == '/') {
@@ -117,6 +117,7 @@ FizzConfig loadConfig(const std::string& configPath) {
 
     FizzConfig config;
     bool hasSearchRoots = false;
+    bool unreadable = false;
 
     std::string line;
     while (std::getline(file, line)) {
@@ -127,7 +128,8 @@ FizzConfig loadConfig(const std::string& configPath) {
 
         size_t eqPos = trimmed.find('=');
         if (eqPos == std::string::npos) {
-            continue;
+            unreadable = true;
+            break;
         }
 
         std::string key = trim(trimmed.substr(0, eqPos));
@@ -137,12 +139,20 @@ FizzConfig loadConfig(const std::string& configPath) {
         std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
-        if (lowerKey == "search_roots" || lowerKey == "searchroots") {
+        if (lowerKey == "search_roots") {
             config.searchRoots = parseCommaSeparatedList(val, true);
             hasSearchRoots = true;
-        } else if (lowerKey == "ignore_rules" || lowerKey == "ignorerules") {
+        } else if (lowerKey == "ignore_rules") {
             config.ignoreRules = parseCommaSeparatedList(val, false);
+        } else {
+            // Unreadable or unknown option
+            unreadable = true;
+            break;
         }
+    }
+
+    if (unreadable) {
+        return FizzConfig{ getDefaultSearchRoots(true), {} };
     }
 
     if (!hasSearchRoots || config.searchRoots.empty()) {

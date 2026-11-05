@@ -7,6 +7,7 @@ struct FizzConfig {
     std::vector<std::string> ignoreRules;
 };
 
+std::string getHomeDir();
 std::string getConfigPath();
 void setConfigPath(const std::string& path);
 
