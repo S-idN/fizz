@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <dirent.h>
 #include <fstream>
 #include <unistd.h>
@@ -56,7 +57,7 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
             strcmp(d_name, "Trash") == 0) {
             return true;
         }
-        if (strncmp(d_name, ".fizzLocalCache", 15) == 0) {
+        if (strncmp(d_name, ".fizzLocalCache", 15) == 0 || strstr(d_name, ".tmp.") != nullptr) {
             return true;
         }
     }
@@ -347,15 +348,31 @@ static void performSystemFileSearch(const std::string& currPath,
     closedir(dirp);
 }
 
+static bool writeAll(int fd, const void* data, size_t size) {
+    const char* ptr = static_cast<const char*>(data);
+    while (size > 0) {
+        ssize_t written = write(fd, ptr, size);
+        if (written <= 0) {
+            if (written < 0 && (errno == EINTR || errno == EAGAIN)) {
+                continue;
+            }
+            return false;
+        }
+        ptr += written;
+        size -= written;
+    }
+    return true;
+}
+
 void systemFileSearch(const std::vector<std::string>& searchRoots) {
     fileStructTable.clear();
     fileTable.clear();
 
     const std::string binaryCachePath = getBinaryCachePath();
-    std::ofstream binaryCacheStream(binaryCachePath, std::ios::binary | std::ios::trunc);
-    if (!binaryCacheStream.is_open()) {
-        std::cerr << "[ERROR] Could not open Binary Cache for writing: " << binaryCachePath << "\n";
-        return;
+    std::error_code ec;
+    fs::path parentDir = fs::path(binaryCachePath).parent_path();
+    if (!parentDir.empty()) {
+        fs::create_directories(parentDir, ec);
     }
 
     std::unordered_set<std::string> indexedPaths;
@@ -367,22 +384,55 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
         performSystemFileSearch(root, indexedPaths, visitedDirs);
     }
 
+    const std::string tmpPath = binaryCachePath + ".tmp." + std::to_string(getpid());
+    int fd = open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        std::cerr << "[ERROR] Could not open temporary Binary Cache for writing: " << tmpPath << "\n";
+        return;
+    }
+    fchmod(fd, 0600);
+
     size_t structCount = fileStructTable.size();
     size_t charCount = fileTable.size();
 
-    binaryCacheStream.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
-    binaryCacheStream.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
+    auto writeFail = [&]() {
+        std::cerr << "[ERROR] Failed to write Binary Cache data: " << tmpPath << "\n";
+        close(fd);
+        unlink(tmpPath.c_str());
+    };
 
+    if (!writeAll(fd, &structCount, sizeof(structCount))) {
+        writeFail();
+        return;
+    }
+    if (!writeAll(fd, &charCount, sizeof(charCount))) {
+        writeFail();
+        return;
+    }
     if (structCount > 0) {
-        binaryCacheStream.write(reinterpret_cast<const char*>(fileStructTable.data()), 
-                                structCount * sizeof(fileEntity));
+        if (!writeAll(fd, fileStructTable.data(), structCount * sizeof(fileEntity))) {
+            writeFail();
+            return;
+        }
     }
-
     if (charCount > 0) {
-        binaryCacheStream.write(fileTable.data(), charCount);
+        if (!writeAll(fd, fileTable.data(), charCount)) {
+            writeFail();
+            return;
+        }
     }
 
-    binaryCacheStream.close();
+    if (close(fd) != 0) {
+        std::cerr << "[ERROR] Could not close temporary Binary Cache: " << tmpPath << "\n";
+        unlink(tmpPath.c_str());
+        return;
+    }
+
+    if (rename(tmpPath.c_str(), binaryCachePath.c_str()) != 0) {
+        std::cerr << "[ERROR] Could not publish Binary Cache via rename: " << strerror(errno) << "\n";
+        unlink(tmpPath.c_str());
+        return;
+    }
 }
 
 void systemFileSearch(const std::string& currPath) {

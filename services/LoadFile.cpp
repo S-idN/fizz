@@ -4,6 +4,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 std::vector<char> g_InMemoryIndexBuffer;
@@ -65,6 +66,25 @@ bool loadIndexToMemory() {
 
     if (!f) {
         return cleanupFailure();
+    }
+
+    // Strictly validate entry string offsets, length bounds, and null-termination
+    for (const auto& ent : fileStructTable) {
+        if (ent.f_length == 0) {
+            return cleanupFailure();
+        }
+        // Offset and length must lie strictly within the in-memory string pool buffer without overflow
+        if (ent.f_offset >= charCount || ent.f_length > charCount || ent.f_offset > charCount - ent.f_length) {
+            return cleanupFailure();
+        }
+        // Path must be null-terminated at the designated end of the slice
+        if (g_InMemoryIndexBuffer[ent.f_offset + ent.f_length - 1] != '\0') {
+            return cleanupFailure();
+        }
+        // Path must not contain premature null terminators
+        if (std::strlen(&g_InMemoryIndexBuffer[ent.f_offset]) != ent.f_length - 1) {
+            return cleanupFailure();
+        }
     }
 
     std::cout << "[SYSTEM] Loaded " << structCount << " entries, "

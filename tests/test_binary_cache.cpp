@@ -5,6 +5,7 @@
 #include <fstream>
 #include <algorithm>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
 #include "services/QueryOps.h"
@@ -469,6 +470,199 @@ void test_query_matcher_end_to_end() {
     std::cout << "[PASS] test_query_matcher_end_to_end passed.\n";
 }
 
+void test_binary_cache_atomic_publication_and_permissions() {
+    std::cout << "[TEST] Running test_binary_cache_atomic_publication_and_permissions...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_sandbox_atomic_perms";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir / "data", ec);
+
+    fs::path sampleFile = sandboxDir / "data" / "item.txt";
+    {
+        std::ofstream out(sampleFile);
+        out << "content\n";
+    }
+
+    fs::path cacheFilePath = sandboxDir / "cache.bin";
+    setBinaryCachePath(cacheFilePath.string());
+
+    // Temporarily set a very permissive umask to verify strict 0600 enforcement
+    mode_t oldUmask = umask(0000);
+
+    systemFileSearch(sandboxDir.string());
+
+    umask(oldUmask);
+
+    // 1. Verify destination cache exists and has non-zero size
+    TEST_ASSERT(fs::exists(cacheFilePath));
+    TEST_ASSERT(fs::file_size(cacheFilePath) > 0);
+
+    // 2. Sibling temporary file .tmp.<pid> should have been cleaned up / renamed
+    std::string expectedTmpPath = cacheFilePath.string() + ".tmp." + std::to_string(getpid());
+    TEST_ASSERT(!fs::exists(expectedTmpPath));
+
+    // 3. Verify permissions are strictly 0600 (owner read/write only)
+    struct stat st;
+    TEST_ASSERT(stat(cacheFilePath.c_str(), &st) == 0);
+    mode_t filePerms = st.st_mode & 0777;
+    TEST_ASSERT(filePerms == 0600);
+
+    // 4. Test atomic replacement of an existing cache
+    ino_t oldInode = st.st_ino;
+    systemFileSearch(sandboxDir.string());
+    struct stat stNew;
+    TEST_ASSERT(stat(cacheFilePath.c_str(), &stNew) == 0);
+    TEST_ASSERT((stNew.st_mode & 0777) == 0600);
+    // Because atomic rename replaced the file with the newly created temp file, inode changed
+    TEST_ASSERT(stNew.st_ino != oldInode);
+
+    // 5. Test that existing valid cache remains uncorrupted if writing fails
+    std::string validContent;
+    {
+        std::ifstream in(cacheFilePath, std::ios::binary);
+        validContent.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    // Point cache to an unwritable directory to trigger open failure
+    fs::path unwriteableDir = sandboxDir / "unwriteable";
+    fs::create_directories(unwriteableDir, ec);
+    fs::path unwriteableCache = unwriteableDir / "target.bin";
+    {
+        std::ofstream out(unwriteableCache);
+        out << "original content";
+    }
+    chmod(unwriteableDir.c_str(), 0500); // read-only directory: cannot create files in it
+    setBinaryCachePath(unwriteableCache.string());
+    systemFileSearch(sandboxDir.string());
+    // unwriteableCache must not have been truncated or corrupted
+    {
+        std::ifstream in(unwriteableCache);
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        TEST_ASSERT(content == "original content");
+    }
+    chmod(unwriteableDir.c_str(), 0755);
+
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_binary_cache_atomic_publication_and_permissions passed.\n";
+}
+
+void test_binary_cache_deserialization_validation() {
+    std::cout << "[TEST] Running test_binary_cache_deserialization_validation...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_sandbox_deser_bounds";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    auto writeCacheFile = [](const fs::path& p, const std::vector<fileEntity>& entries, const std::string& strPool) {
+        std::ofstream out(p, std::ios::binary);
+        size_t structCount = entries.size();
+        size_t charCount = strPool.size();
+        out.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+        out.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
+        if (structCount > 0) {
+            out.write(reinterpret_cast<const char*>(entries.data()), structCount * sizeof(fileEntity));
+        }
+        if (charCount > 0) {
+            out.write(strPool.data(), charCount);
+        }
+    };
+
+    // 1. Entry offset completely out of bounds (f_offset >= charCount)
+    {
+        fs::path p = sandboxDir / "oob_offset.bin";
+        fileEntity ent{};
+        ent.f_offset = 100; // string pool is only 10 bytes
+        ent.f_length = 5;
+        writeCacheFile(p, {ent}, std::string(10, 'a'));
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    // 2. Entry length zero
+    {
+        fs::path p = sandboxDir / "zero_length.bin";
+        fileEntity ent{};
+        ent.f_offset = 0;
+        ent.f_length = 0;
+        std::string pool = "hello\0";
+        writeCacheFile(p, {ent}, std::string(pool.c_str(), 6));
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    // 3. Entry offset + length exceeds buffer bounds
+    {
+        fs::path p = sandboxDir / "oob_length.bin";
+        fileEntity ent{};
+        ent.f_offset = 5;
+        ent.f_length = 10; // offset 5 + length 10 = 15 > 10
+        writeCacheFile(p, {ent}, std::string(10, 'a'));
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    // 4. Arithmetic overflow in f_offset + f_length
+    {
+        fs::path p = sandboxDir / "overflow_bounds.bin";
+        fileEntity ent{};
+        ent.f_offset = SIZE_MAX - 2;
+        ent.f_length = 10;
+        writeCacheFile(p, {ent}, std::string(10, 'a'));
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    // 5. Missing null termination (last byte in slice is not '\0')
+    {
+        fs::path p = sandboxDir / "not_null_terminated.bin";
+        fileEntity ent{};
+        ent.f_offset = 0;
+        ent.f_length = 5;
+        std::string pool = "abcde"; // no null terminator
+        writeCacheFile(p, {ent}, pool);
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    // 6. Premature null termination inside entry
+    {
+        fs::path p = sandboxDir / "premature_null.bin";
+        fileEntity ent{};
+        ent.f_offset = 0;
+        ent.f_length = 6;
+        const char rawPool[6] = {'a', 'b', '\0', 'd', 'e', '\0'};
+        writeCacheFile(p, {ent}, std::string(rawPool, 6));
+        setBinaryCachePath(p.string());
+        bool loaded = loadIndexToMemory();
+        TEST_ASSERT(!loaded);
+        TEST_ASSERT(fileStructTable.empty());
+        TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+    }
+
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_binary_cache_deserialization_validation passed.\n";
+}
+
 void run_binary_cache_tests() {
     test_file_classification();
     test_default_search_roots();
@@ -477,4 +671,6 @@ void run_binary_cache_tests() {
     test_binary_cache_sandboxed_roundtrip();
     test_binary_cache_corruption_detection();
     test_query_matcher_end_to_end();
+    test_binary_cache_atomic_publication_and_permissions();
+    test_binary_cache_deserialization_validation();
 }
