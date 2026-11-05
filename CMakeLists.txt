@@ -48,6 +48,7 @@ target_compile_options(main_gui PRIVATE -O2)
 target_link_options(main_gui PRIVATE -s)   
 
 add_executable(fizzd
+    services/AppLauncher.cpp
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
@@ -70,6 +71,7 @@ add_executable(fizz_tests
     services/FileSearch.cpp
     services/LoadFile.cpp
     services/AppLauncher.cpp
+    services/QueryOps.cpp
 )
 
 target_include_directories(fizz_tests PRIVATE

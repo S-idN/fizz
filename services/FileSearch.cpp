@@ -12,6 +12,7 @@
 #include <filesystem>
 #include "FileSearch.h"
 #include "Config.h"
+#include "AppLauncher.h"
 
 namespace fs = std::filesystem;
 
@@ -177,13 +178,9 @@ std::string getBinaryCachePath() {
     if (!s_CustomBinaryCachePath.empty()) {
         return s_CustomBinaryCachePath;
     }
-    const char* home = std::getenv("HOME");
-    if (home && home[0] != '\0') {
-        return std::string(home) + "/.fizzLocalCache.bin";
-    }
-    struct passwd* pw = getpwuid(getuid());
-    if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
-        return std::string(pw->pw_dir) + "/.fizzLocalCache.bin";
+    std::string home = getHomeDir();
+    if (!home.empty()) {
+        return home + "/.fizzLocalCache.bin";
     }
     return "/tmp/.fizzLocalCache.bin";
 }
@@ -193,20 +190,9 @@ void setBinaryCachePath(const std::string& path) {
 }
 
 std::string_view classifyPath(std::string_view path, ExecState state) {
-    // Check for .desktop extension (case-insensitive) - always classified as "app"
-    constexpr std::string_view kDesktopExt = ".desktop";
-    if (path.size() >= kDesktopExt.size()) {
-        std::string_view tail = path.substr(path.size() - kDesktopExt.size());
-        bool matches = true;
-        for (size_t i = 0; i < kDesktopExt.size(); ++i) {
-            if (std::tolower(static_cast<unsigned char>(tail[i])) != kDesktopExt[i]) {
-                matches = false;
-                break;
-            }
-        }
-        if (matches) {
-            return "app";
-        }
+    // Check for Desktop Entry - always classified as "app"
+    if (isDesktopEntry(path)) {
+        return "app";
     }
 
     if (state == ExecState::Executable) {
@@ -269,16 +255,33 @@ void addToLocalCache(unsigned long inode, unsigned char f_type, size_t f_length,
     fileTable.push_back('\0');
 }
 
+struct DirId {
+    dev_t dev;
+    ino_t ino;
+    bool operator==(const DirId& o) const { return dev == o.dev && ino == o.ino; }
+};
+
+struct DirIdHash {
+    std::size_t operator()(const DirId& d) const {
+        return std::hash<dev_t>()(d.dev) ^ (std::hash<ino_t>()(d.ino) << 1);
+    }
+};
+
 static void performSystemFileSearch(const std::string& currPath,
                                    std::unordered_set<std::string>& indexedPaths,
-                                   std::unordered_set<std::string>& visitedDirs) {
-    if (!visitedDirs.insert(currPath).second) {
-        return; // Avoid cycles or redundant traversals of overlapping roots
+                                   std::unordered_set<DirId, DirIdHash>& visitedDirs) {
+    struct stat dirStat;
+    if (stat(currPath.c_str(), &dirStat) != 0 || !S_ISDIR(dirStat.st_mode)) {
+        return; // Gracefully survive missing paths or permission errors (e.g. EACCES)
+    }
+
+    if (!visitedDirs.insert({dirStat.st_dev, dirStat.st_ino}).second) {
+        return; // Avoid cycles or redundant traversals of overlapping roots via (dev, ino)
     }
 
     DIR* dirp = opendir(currPath.c_str());
     if (dirp == nullptr) {
-        return; // Gracefully survive permission-restricted paths (e.g. EACCES)
+        return; // Gracefully survive permission-restricted directories
     }
 
     struct dirent* dp;
@@ -298,11 +301,24 @@ static void performSystemFileSearch(const std::string& currPath,
         }
 
         unsigned char dType = dp->d_type;
-        if (dType == DT_UNKNOWN || dType == DT_LNK) {
+        if (dType == DT_UNKNOWN) {
+            struct stat lst;
+            if (lstat(currFileName.c_str(), &lst) == 0) {
+                if (S_ISDIR(lst.st_mode)) dType = DT_DIR;
+                else if (S_ISREG(lst.st_mode)) dType = DT_REG;
+                else if (S_ISLNK(lst.st_mode)) dType = DT_LNK;
+            }
+        }
+
+        if (dType == DT_LNK) {
+            // Check if symlink target is a regular file (e.g. Flatpak .desktop exports).
+            // Directory symlinks are intentionally not traversed or indexed to avoid cycles,
+            // escaping configured search roots, and inotify watcher mismatches.
             struct stat targetStat;
-            if (stat(currFileName.c_str(), &targetStat) == 0) {
-                if (S_ISDIR(targetStat.st_mode)) dType = DT_DIR;
-                else if (S_ISREG(targetStat.st_mode)) dType = DT_REG;
+            if (stat(currFileName.c_str(), &targetStat) == 0 && S_ISREG(targetStat.st_mode)) {
+                dType = DT_REG;
+            } else {
+                continue;
             }
         }
 
@@ -343,7 +359,7 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
     }
 
     std::unordered_set<std::string> indexedPaths;
-    std::unordered_set<std::string> visitedDirs;
+    std::unordered_set<DirId, DirIdHash> visitedDirs;
 
     for (const auto& root : searchRoots) {
         if (root.empty()) continue;

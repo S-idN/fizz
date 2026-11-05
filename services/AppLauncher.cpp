@@ -247,12 +247,12 @@ bool launchTarget(std::string_view path, ExecState state, bool showFolder) {
 
     if (pid == 0) {
         setsid();
-        int nullFd = open("/dev/null", O_RDWR);
-        if (nullFd >= 0) {
-            dup2(nullFd, 0);
-            dup2(nullFd, 1);
-            dup2(nullFd, 2);
-            close(nullFd);
+        int devNullFd = open("/dev/null", O_RDWR);
+        if (devNullFd >= 0) {
+            dup2(devNullFd, 0);
+            dup2(devNullFd, 1);
+            dup2(devNullFd, 2);
+            close(devNullFd);
         }
 
         std::vector<char*> argv;

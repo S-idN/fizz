@@ -8,6 +8,7 @@
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
 #include "services/Config.h"
+#include "services/QueryOps.h"
 
 namespace fs = std::filesystem;
 
@@ -71,7 +72,7 @@ void test_binary_cache_sandboxed_roundtrip() {
     // Execute system file search in the sandbox
     systemFileSearch(sandboxDir.string());
 
-    // Verify cache file was created at the overridden path
+    // Verify Binary Cache was created at the overridden path
     TEST_ASSERT(fs::exists(cacheFilePath));
     TEST_ASSERT(fs::file_size(cacheFilePath) > 0);
 
@@ -270,6 +271,16 @@ void test_dual_search_roots_and_traversal() {
     // Simulate Flatpak symlink export
     fs::create_symlink(appDir / "sub" / "terminal.desktop", appDir / "flatpak_app.desktop", ec);
 
+    // Simulate cyclic directory symlink and external directory symlink
+    fs::create_directory_symlink(userHome, userHome / "recursive_dir_loop", ec);
+    fs::path outsideDir = sandboxDir / "outside_dir";
+    fs::create_directories(outsideDir, ec);
+    {
+        std::ofstream out(outsideDir / "secret_outside.txt");
+        out << "classified\n";
+    }
+    fs::create_directory_symlink(outsideDir, userHome / "outside_dir_symlink", ec);
+
     // Make restricted_dir unreadable (permission denied)
     {
         std::ofstream out(userHome / "restricted_dir" / "secret.txt");
@@ -299,6 +310,8 @@ void test_dual_search_roots_and_traversal() {
     bool foundFlatpakSymlink = false;
     bool foundIgnoredCache = false;
     bool foundIgnoredGit = false;
+    bool foundOutsideSecret = false;
+    bool foundDirLoop = false;
     int projectCount = 0;
 
     for (const auto& ent : fileStructTable) {
@@ -325,6 +338,8 @@ void test_dual_search_roots_and_traversal() {
         }
         if (pathStr.find(".cache") != std::string::npos) foundIgnoredCache = true;
         if (pathStr.find(".git") != std::string::npos) foundIgnoredGit = true;
+        if (pathStr.find("secret_outside.txt") != std::string::npos) foundOutsideSecret = true;
+        if (pathStr.find("recursive_dir_loop") != std::string::npos) foundDirLoop = true;
     }
 
     TEST_ASSERT(foundFile1);
@@ -334,6 +349,8 @@ void test_dual_search_roots_and_traversal() {
     TEST_ASSERT(foundFlatpakSymlink);
     TEST_ASSERT(!foundIgnoredCache);
     TEST_ASSERT(!foundIgnoredGit);
+    TEST_ASSERT(!foundOutsideSecret);
+    TEST_ASSERT(!foundDirLoop);
     TEST_ASSERT(projectCount == 1);
 
     // Test deduplication with overlapping roots
@@ -626,6 +643,100 @@ void test_custom_ignore_rules_matching() {
     std::cout << "[PASS] test_custom_ignore_rules_matching passed.\n";
 }
 
+void test_query_matcher_end_to_end() {
+    std::cout << "[TEST] Running test_query_matcher_end_to_end...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_query_matcher";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir / "docs", ec);
+    fs::create_directories(sandboxDir / "apps", ec);
+
+    // Create files with distinctive names
+    {
+        std::ofstream out(sandboxDir / "docs" / "user_guide.txt");
+        out << "manual\n";
+    }
+    {
+        std::ofstream out(sandboxDir / "docs" / "development_plan.md");
+        out << "plan\n";
+    }
+    {
+        std::ofstream out(sandboxDir / "apps" / "calculator.desktop");
+        out << "[Desktop Entry]\nName=Calculator\nType=Application\n";
+    }
+    {
+        std::ofstream out(sandboxDir / "apps" / "terminal.desktop");
+        out << "[Desktop Entry]\nName=Terminal\nType=Application\n";
+    }
+    {
+        std::ofstream out(sandboxDir / "script.sh");
+        out << "#!/bin/sh\necho hi\n";
+    }
+    chmod((sandboxDir / "script.sh").c_str(), 0755);
+
+    fs::path cachePath = sandboxDir / "query_cache.bin";
+    setBinaryCachePath(cachePath.string());
+
+    // 1. Index the sandbox directory
+    systemFileSearch(sandboxDir.string());
+    TEST_ASSERT(fs::exists(cachePath));
+
+    // 2. Load into memory
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    // 3. Query: "calc" -> should match calculator.desktop
+    std::vector<SearchHit> results;
+    searchPaths("calc", results, 10);
+    TEST_ASSERT(!results.empty());
+    bool foundCalc = false;
+    for (const auto& hit : results) {
+        TEST_ASSERT(hit.score > 0);
+        if (hit.path.find("calculator.desktop") != std::string_view::npos) {
+            foundCalc = true;
+            TEST_ASSERT(classifyPath(hit.path, hit.execState) == "app");
+        }
+    }
+    TEST_ASSERT(foundCalc);
+
+    // 4. Query: "script" -> should match script.sh and indicate Executable
+    results.clear();
+    searchPaths("script", results, 10);
+    TEST_ASSERT(!results.empty());
+    bool foundScript = false;
+    for (const auto& hit : results) {
+        if (hit.path.find("script.sh") != std::string_view::npos) {
+            foundScript = true;
+            TEST_ASSERT(hit.execState == ExecState::Executable);
+        }
+    }
+    TEST_ASSERT(foundScript);
+
+    // 5. Query: "guide" -> should match user_guide.txt
+    results.clear();
+    searchPaths("guide", results, 10);
+    TEST_ASSERT(!results.empty());
+    bool foundGuide = false;
+    for (const auto& hit : results) {
+        if (hit.path.find("user_guide.txt") != std::string_view::npos) {
+            foundGuide = true;
+        }
+    }
+    TEST_ASSERT(foundGuide);
+
+    // 6. Query with no matches
+    results.clear();
+    searchPaths("nonexistent_pattern_xyz_123", results, 10);
+    TEST_ASSERT(results.empty());
+
+    // Cleanup
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_query_matcher_end_to_end passed.\n";
+}
+
 void run_app_launcher_tests();
 
 int main() {
@@ -641,6 +752,7 @@ int main() {
     test_binary_cache_path_resolution();
     test_binary_cache_sandboxed_roundtrip();
     test_binary_cache_corruption_detection();
+    test_query_matcher_end_to_end();
     std::cout << "All tests passed successfully.\n";
     return 0;
 }
