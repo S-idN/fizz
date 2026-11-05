@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
-
-BIN_DIR="$HOME/.local/bin"
-UNIT_DIR="$HOME/.config/systemd/user"
-AUTOSTART_DIR="$HOME/.config/autostart"
-HYPR_CONF="$HOME/.config/hypr/hyprland.conf"
+BIN_DIR="${FIZZ_BIN_DIR:-$HOME/.local/bin}"
+UNIT_DIR="${FIZZ_UNIT_DIR:-$HOME/.config/systemd/user}"
+AUTOSTART_DIR="${FIZZ_AUTOSTART_DIR:-$HOME/.config/autostart}"
+CONFIG_DIR="${FIZZ_CONFIG_DIR:-$HOME/.config/fizz}"
+CACHE_FILE="${FIZZ_CACHE_FILE:-$HOME/.fizzLocalCache.bin}"
+HYPR_CONF="${FIZZ_HYPR_CONF:-$HOME/.config/hypr/hyprland.conf}"
+SWAY_CONF="${FIZZ_SWAY_CONF:-$HOME/.config/sway/config}"
+I3_CONF="${FIZZ_I3_CONF:-$HOME/.config/i3/config}"
 HOTKEY_CMD="$BIN_DIR/fizz-search"
 
-PKGS_PACMAN="base-devel cmake glfw-x11"
-PKGS_APT="build-essential cmake libglfw3-dev libgl1-mesa-dev"
-PKGS_DNF="gcc-c++ make cmake glfw-devel mesa-libGL-devel"
-PKGS_ZYPPER="gcc-c++ make cmake glfw3-devel Mesa-libGL-devel"
+SENTINEL_BEGIN="# BEGIN FIZZ HOTKEY"
+SENTINEL_END="# END FIZZ HOTKEY"
+
+PKGS_PACMAN="base-devel cmake glfw-x11 pkgconf"
+PKGS_APT="build-essential cmake libglfw3-dev libgl1-mesa-dev pkg-config"
+PKGS_DNF="gcc-c++ make cmake glfw-devel mesa-libGL-devel pkgconf-pkg-config"
+PKGS_ZYPPER="gcc-c++ make cmake glfw3-devel Mesa-libGL-devel pkgconf-pkg-config"
 
 deps_command() {
     if   command -v pacman  >/dev/null; then echo "sudo pacman -S --needed $PKGS_PACMAN"
@@ -33,38 +38,105 @@ has_glfw() {
     return 1
 }
 
-deps_missing() {
-    command -v cmake >/dev/null || return 0
-    command -v c++   >/dev/null || return 0
-    has_glfw || return 0
+has_opengl() {
+    command -v pkg-config >/dev/null && pkg-config --exists gl && return 0
+    local f
+    for f in /usr/include/GL/gl.h \
+             /usr/local/include/GL/gl.h \
+             /usr/include/*/GL/gl.h; do
+        [ -f "$f" ] && return 0
+    done
     return 1
 }
 
-if [ "${1:-}" = "--install-deps" ]; then
-    cmd="$(deps_command)"
-    [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
-    echo "Running: $cmd"
-    $cmd
-fi
+deps_missing() {
+    command -v cmake >/dev/null || return 0
+    (command -v c++ >/dev/null || command -v g++ >/dev/null || command -v clang++ >/dev/null) || return 0
+    (command -v make >/dev/null || command -v ninja >/dev/null) || return 0
+    has_glfw || return 0
+    has_opengl || return 0
+    return 1
+}
 
-if deps_missing; then
-    echo "Missing build dependencies. Install them with:"
-    echo "  $(deps_command)"
-    echo "Then re-run ./install.sh (or run ./install.sh --install-deps to do it for you, using sudo)."
-    exit 1
-fi
+inject_wm_hotkey() {
+    local conf="$1"
+    local hotkey_line="$2"
+    [ -f "$conf" ] || return 1
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)" --target main_gui fizzd
+    if grep -q "$SENTINEL_BEGIN" "$conf" 2>/dev/null; then
+        return 0
+    fi
 
-mkdir -p "$BIN_DIR"
-install -m755 build/main_gui "$BIN_DIR/fizz-search"
-install -m755 build/fizzd    "$BIN_DIR/fizzd"
-echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
+    if grep -q "fizz-search" "$conf" 2>/dev/null; then
+        return 0
+    fi
 
-if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
-    mkdir -p "$UNIT_DIR"
-    cat > "$UNIT_DIR/fizzd.service" <<'EOF'
+    printf '\n%s\n%s\n%s\n' "$SENTINEL_BEGIN" "$hotkey_line" "$SENTINEL_END" >> "$conf"
+}
+
+remove_wm_hotkey() {
+    local conf="$1"
+    [ -f "$conf" ] || return 0
+
+    sed -i "/$SENTINEL_BEGIN/,/$SENTINEL_END/d" "$conf"
+    sed -i '/# --- Fizz Search Hotkey ---/d' "$conf"
+    sed -i '/fizz-search/d' "$conf"
+}
+
+hotkey_hyprland() {
+    [ -f "$HYPR_CONF" ] || return 1
+    inject_wm_hotkey "$HYPR_CONF" "bind = CTRL SUPER, SPACE, exec, $HOTKEY_CMD"
+    command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
+    echo "Hyprland hotkey configured: Ctrl+Super+Space"
+}
+
+hotkey_sway() {
+    [ -f "$SWAY_CONF" ] || return 1
+    inject_wm_hotkey "$SWAY_CONF" "bindsym Ctrl+Mod4+space exec $HOTKEY_CMD"
+    command -v swaymsg >/dev/null && swaymsg reload >/dev/null 2>&1 || true
+    echo "Sway hotkey configured: Ctrl+Super+Space"
+}
+
+hotkey_i3() {
+    [ -f "$I3_CONF" ] || return 1
+    inject_wm_hotkey "$I3_CONF" "bindsym Ctrl+Mod4+space exec $HOTKEY_CMD"
+    command -v i3-msg >/dev/null && i3-msg reload >/dev/null 2>&1 || true
+    echo "i3 hotkey configured: Ctrl+Super+Space"
+}
+
+hotkey_gnome() {
+    command -v gsettings >/dev/null || return 1
+    case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) return 1 ;; esac
+    command -v python3 >/dev/null || return 1
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    python3 "$script_dir/scripts/gnome_shortcut.py" register --command "$HOTKEY_CMD"
+}
+
+setup_hotkeys() {
+    hotkey_hyprland || hotkey_sway || hotkey_i3 || hotkey_gnome || {
+        echo "Couldn't set a hotkey automatically for this desktop."
+        echo "In your keyboard settings (KDE: System Settings -> Shortcuts), bind a key to:"
+        echo "  $HOTKEY_CMD"
+    }
+}
+
+unhotkey_all() {
+    [ -f "$HYPR_CONF" ] && remove_wm_hotkey "$HYPR_CONF" && (command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true)
+    [ -f "$SWAY_CONF" ] && remove_wm_hotkey "$SWAY_CONF" && (command -v swaymsg >/dev/null && swaymsg reload >/dev/null 2>&1 || true)
+    [ -f "$I3_CONF" ] && remove_wm_hotkey "$I3_CONF" && (command -v i3-msg >/dev/null && i3-msg reload >/dev/null 2>&1 || true)
+    if command -v gsettings >/dev/null && command -v python3 >/dev/null; then
+        local script_dir
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        python3 "$script_dir/scripts/gnome_shortcut.py" unregister 2>/dev/null || true
+    fi
+}
+
+install_service() {
+    if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
+        mkdir -p "$UNIT_DIR"
+        cat > "$UNIT_DIR/fizzd.service" <<'EOF'
 [Unit]
 Description=Fizz file index daemon
 
@@ -79,84 +151,147 @@ CPUSchedulingPolicy=idle
 [Install]
 WantedBy=default.target
 EOF
-    systemctl --user daemon-reload
-    systemctl --user enable fizzd.service
-    systemctl --user restart fizzd.service    
-    echo "fizzd systemd user service enabled and running."
-else
-    mkdir -p "$AUTOSTART_DIR"
-    cat > "$AUTOSTART_DIR/fizzd.desktop" <<EOF
+        systemctl --user daemon-reload
+        systemctl --user enable fizzd.service
+        systemctl --user restart fizzd.service
+        echo "fizzd systemd user service enabled and running."
+    else
+        mkdir -p "$AUTOSTART_DIR"
+        cat > "$AUTOSTART_DIR/fizzd.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Fizz index daemon
 Exec=$BIN_DIR/fizzd
 X-GNOME-Autostart-enabled=true
 EOF
-    echo "No systemd user session; installed XDG autostart entry (starts at next login)."
-    echo "To start it now:  nohup $BIN_DIR/fizzd >/dev/null 2>&1 &"
-fi
-
-hotkey_hyprland() {
-    [ -f "$HYPR_CONF" ] || return 1
-    grep -q "fizz-search" "$HYPR_CONF" ||
-        printf '\n# --- Fizz Search Hotkey ---\nbind = CTRL SUPER, SPACE, exec, %s\n' "$HOTKEY_CMD" >> "$HYPR_CONF"
-    command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
-    echo "Hyprland hotkey set: Ctrl+Super+Space"
+        echo "No systemd user session; installed XDG autostart entry (starts at next login)."
+        echo "To start it now:  nohup $BIN_DIR/fizzd >/dev/null 2>&1 &"
+    fi
 }
 
-hotkey_sway() {
-    local conf="$HOME/.config/sway/config"
-    [ -f "$conf" ] || return 1
-    grep -q "fizz-search" "$conf" ||
-        printf '\n# --- Fizz Search Hotkey ---\nbindsym Ctrl+Mod4+space exec %s\n' "$HOTKEY_CMD" >> "$conf"
-    command -v swaymsg >/dev/null && swaymsg reload >/dev/null 2>&1 || true
-    echo "Sway hotkey set: Ctrl+Super+Space"
+uninstall_service() {
+    if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
+        systemctl --user stop fizzd.service 2>/dev/null || true
+        systemctl --user disable fizzd.service 2>/dev/null || true
+        rm -f "$UNIT_DIR/fizzd.service"
+        systemctl --user daemon-reload 2>/dev/null || true
+        echo "Stopped and disabled fizzd systemd user service."
+    fi
+    if [ -f "$AUTOSTART_DIR/fizzd.desktop" ]; then
+        rm -f "$AUTOSTART_DIR/fizzd.desktop"
+        echo "Removed XDG autostart entry: $AUTOSTART_DIR/fizzd.desktop"
+    fi
 }
 
-hotkey_i3() {
-    local conf="$HOME/.config/i3/config"
-    [ -f "$conf" ] || return 1
-    grep -q "fizz-search" "$conf" ||
-        printf '\n# --- Fizz Search Hotkey ---\nbindsym Ctrl+Mod4+space exec %s\n' "$HOTKEY_CMD" >> "$conf"
-    command -v i3-msg >/dev/null && i3-msg reload >/dev/null 2>&1 || true
-    echo "i3 hotkey set: Ctrl+Super+Space"
+uninstall_binaries() {
+    rm -f "$BIN_DIR/fizz-search" "$BIN_DIR/fizzd"
+    echo "Removed binaries: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
 }
 
-hotkey_gnome() {
-    command -v gsettings >/dev/null || return 1
-    case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*) ;; *) return 1 ;; esac
+uninstall_fizz() {
+    local purge="${1:-0}"
+    echo "Uninstalling Fizz..."
+    uninstall_service
+    unhotkey_all
+    uninstall_binaries
 
-    local schema=org.gnome.settings-daemon.plugins.media-keys
-    local path=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/fizz/
-    local cur new
-    cur=$(gsettings get $schema custom-keybindings)
-    case "$cur" in
-        *"$path"*) ;;   
-        *)  if [ "$cur" = "@as []" ] || [ "$cur" = "[]" ]; then
-                new="['$path']"
+    if [ "$purge" -eq 1 ]; then
+        echo "Purging configuration and binary cache..."
+        rm -rf "$CONFIG_DIR"
+        rm -f "$CACHE_FILE"
+        echo "Purged $CONFIG_DIR and $CACHE_FILE."
+    else
+        echo "Preserved configuration ($CONFIG_DIR) and cache ($CACHE_FILE)."
+        echo "Pass --purge to remove them."
+    fi
+    echo "Fizz uninstalled successfully."
+}
+
+build_and_install() {
+    local src_dir="$1"
+    cmake -S "$src_dir" -B "$src_dir/build" -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$src_dir/build" -j"$(nproc)" --target main_gui fizzd
+
+    mkdir -p "$BIN_DIR"
+    install -m755 "$src_dir/build/main_gui" "$BIN_DIR/fizz-search"
+    install -m755 "$src_dir/build/fizzd"    "$BIN_DIR/fizzd"
+    echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
+}
+
+main() {
+    local src_dir
+    src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$src_dir"
+
+    local install_deps=0
+    local no_hotkey=0
+    local uninstall=0
+    local purge=0
+
+    if [[ "$(basename "$0")" == "uninstall"* ]]; then
+        uninstall=1
+    fi
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --install-deps) install_deps=1 ;;
+            --no-hotkey) no_hotkey=1 ;;
+            --uninstall) uninstall=1 ;;
+            --purge) uninstall=1; purge=1 ;;
+            --source-only) return 0 ;;
+            *) echo "Unknown option: $1" >&2; exit 1 ;;
+        esac
+        shift
+    done
+
+    if [ "$uninstall" -eq 1 ]; then
+        uninstall_fizz "$purge"
+        return 0
+    fi
+
+    if [ "$install_deps" -eq 1 ]; then
+        cmd="$(deps_command)"
+        [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
+        echo "Running: $cmd"
+        $cmd
+    fi
+
+    if deps_missing; then
+        echo "Missing build dependencies. Install them with:"
+        echo "  $(deps_command)"
+        if [ -t 0 ] && [ "$install_deps" -eq 0 ]; then
+            printf "Install missing dependencies using sudo? [y/N] "
+            read -r reply
+            if [[ "$reply" =~ ^[Yy]$ ]]; then
+                cmd="$(deps_command)"
+                [ -n "$cmd" ] || { echo "Unknown package manager; install dependencies manually."; exit 1; }
+                echo "Running: $cmd"
+                $cmd
             else
-                new="${cur%]}, '$path']"   
+                exit 1
             fi
-            gsettings set $schema custom-keybindings "$new" ;;
+        else
+            echo "Then re-run ./install.sh (or run ./install.sh --install-deps to do it for you, using sudo)."
+            exit 1
+        fi
+    fi
+
+    build_and_install "$src_dir"
+    install_service
+
+    if [ "$no_hotkey" -eq 0 ]; then
+        setup_hotkeys
+    fi
+
+    case ":$PATH:" in
+        *":$BIN_DIR:"*) ;;
+        *) echo "Note: $BIN_DIR is not on your PATH (the hotkey and service don't need it)." ;;
     esac
 
-    local key="$schema.custom-keybinding:$path"
-    gsettings set "$key" name 'Fizz Search'
-    gsettings set "$key" command "$HOTKEY_CMD"
-    gsettings set "$key" binding '<Control><Super>space'
-    echo "GNOME hotkey set: Ctrl+Super+Space"
+    echo
+    echo "Done."
 }
 
-hotkey_hyprland || hotkey_sway || hotkey_i3 || hotkey_gnome || {
-    echo "Couldn't set a hotkey automatically for this desktop."
-    echo "In your keyboard settings (KDE: System Settings -> Shortcuts), bind a key to:"
-    echo "  $HOTKEY_CMD"
-}
-
-case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;
-    *) echo "Note: $BIN_DIR is not on your PATH (the hotkey and service don't need it)." ;;
-esac
-
-echo
-echo "Done."
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

@@ -91,5 +91,6 @@ target_link_libraries(fizz_tests PRIVATE Threads::Threads)
 
 enable_testing()
 add_test(NAME fizz_tests COMMAND fizz_tests)
+add_test(NAME test_installer COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_installer.sh)
 
 install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)
