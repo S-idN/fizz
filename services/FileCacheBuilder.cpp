@@ -26,11 +26,11 @@ static int inoFd;
 static std::unordered_map<int, std::string> dirOf;   
 
 static void rebuild() {
-    systemFileSearch("/");
+    systemFileSearch(getDefaultSearchRoots());
 }
 
 static bool ignored(const char* name) {
-    static const char* skip[] = {".cache", ".git", "node_modules", "Flatpak", "Trash"};
+    static const char* skip[] = {".cache", ".git", "node_modules", "Trash"};
     for (auto s : skip)
         if (strcmp(name, s) == 0) return true;
     return strncmp(name, ".fizzLocalCache", 15) == 0;
@@ -85,11 +85,13 @@ static int acquireLock() {
 }
 
 static void runDaemon() {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+    auto roots = getDefaultSearchRoots(true);
+    if (roots.empty()) return;
 
     inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    watchTree(home);
+    for (const auto& root : roots) {
+        watchTree(root);
+    }
 
     rebuild();
     auto lastBuild = Clock::now();

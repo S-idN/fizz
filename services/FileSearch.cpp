@@ -6,26 +6,133 @@
 #include <unistd.h>
 #include <pwd.h>
 #include <vector>
+#include <cctype>
+#include <unordered_map>
+#include <unordered_set>
+#include <filesystem>
 #include "FileSearch.h"
 
-std::vector<std::string> stack = {};
+namespace fs = std::filesystem;
 
-std::string rootDir = "/";
+// Ignore rules: skip system mount paths, common cache/vcs directories, and cache files
+static bool isIgnored(std::string_view fullpath, const char* d_name) {
+    if (d_name) {
+        if (strcmp(d_name, ".cache") == 0 ||
+            strcmp(d_name, ".git") == 0 ||
+            strcmp(d_name, "node_modules") == 0 ||
+            strcmp(d_name, "Trash") == 0) {
+            return true;
+        }
+        if (strncmp(d_name, ".fizzLocalCache", 15) == 0) {
+            return true;
+        }
+    }
 
-std::vector<std::string> absoluteBlacklist = {
-    "/dev", "/proc", 
-    "/sys"};
+    static const std::string_view prefixIgnores[] = {"/dev", "/proc", "/sys"};
+    for (auto prefix : prefixIgnores) {
+        if (fullpath.size() >= prefix.size() && fullpath.substr(0, prefix.size()) == prefix) {
+            return true;
+        }
+    }
 
-std::vector<std::string> componentBlacklist = {
-    ".cache", ".git", "node_modules", "Flatpak", ".local/share/Trash"
-};
-
-const std::string hiddenPattern(R"((^|[/\\])\.[^/\\]+)");
+    static const std::string_view componentIgnores[] = {
+        "/.cache",
+        "/.git",
+        "/node_modules",
+        "/Trash",
+        "/.local/share/Trash"
+    };
+    for (auto comp : componentIgnores) {
+        size_t pos = fullpath.find(comp);
+        if (pos != std::string_view::npos) {
+            size_t end = pos + comp.size();
+            if (end == fullpath.size() || fullpath[end] == '/') {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 std::vector<fileEntity> fileStructTable;
 std::vector<char> fileTable;
 
 static std::string s_CustomBinaryCachePath = "";
+
+static std::string getHomeDir() {
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return home;
+    }
+    struct passwd* pw = getpwuid(getuid());
+    if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
+        return pw->pw_dir;
+    }
+    return "";
+}
+
+std::vector<std::string> getDefaultSearchRoots(bool existingOnly) {
+    std::vector<std::string> candidates;
+    std::string home = getHomeDir();
+
+    if (!home.empty()) {
+        candidates.push_back(home);
+    }
+
+    // User local applications
+    const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+    if (xdgDataHome && xdgDataHome[0] != '\0') {
+        candidates.push_back(std::string(xdgDataHome) + "/applications");
+    } else if (!home.empty()) {
+        candidates.push_back(home + "/.local/share/applications");
+    }
+
+    // Flatpak user exports
+    if (!home.empty()) {
+        candidates.push_back(home + "/.local/share/flatpak/exports/share/applications");
+    }
+
+    // System applications
+    candidates.push_back("/usr/local/share/applications");
+    candidates.push_back("/usr/share/applications");
+
+    // Flatpak system exports
+    candidates.push_back("/var/lib/flatpak/exports/share/applications");
+
+    // Standard XDG_DATA_DIRS if defined
+    const char* xdgDataDirs = std::getenv("XDG_DATA_DIRS");
+    if (xdgDataDirs && xdgDataDirs[0] != '\0') {
+        std::string dirs(xdgDataDirs);
+        size_t start = 0;
+        while (start < dirs.size()) {
+            size_t end = dirs.find(':', start);
+            if (end == std::string::npos) end = dirs.size();
+            std::string dir = dirs.substr(start, end - start);
+            if (!dir.empty()) {
+                candidates.push_back(dir + "/applications");
+            }
+            start = end + 1;
+        }
+    }
+
+    std::vector<std::string> result;
+    std::unordered_set<std::string> seen;
+
+    for (const auto& path : candidates) {
+        if (path.empty()) continue;
+        if (existingOnly) {
+            std::error_code ec;
+            if (!fs::exists(path, ec) || !fs::is_directory(path, ec)) {
+                continue;
+            }
+        }
+        if (seen.insert(path).second) {
+            result.push_back(path);
+        }
+    }
+
+    return result;
+}
 
 std::string getBinaryCachePath() {
     if (!s_CustomBinaryCachePath.empty()) {
@@ -44,6 +151,59 @@ std::string getBinaryCachePath() {
 
 void setBinaryCachePath(const std::string& path) {
     s_CustomBinaryCachePath = path;
+}
+
+std::string_view classifyPath(std::string_view path, ExecState state) {
+    // Check for .desktop extension (case-insensitive) - always classified as "app"
+    constexpr std::string_view kDesktopExt = ".desktop";
+    if (path.size() >= kDesktopExt.size()) {
+        std::string_view tail = path.substr(path.size() - kDesktopExt.size());
+        bool matches = true;
+        for (size_t i = 0; i < kDesktopExt.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(tail[i])) != kDesktopExt[i]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return "app";
+        }
+    }
+
+    if (state == ExecState::Executable) {
+        return "exec";
+    }
+
+    size_t slash = path.rfind('/');
+    size_t dot = path.rfind('.');
+    if (dot == std::string_view::npos || (slash != std::string_view::npos && dot <= slash + 1)) {
+        return "";
+    }
+
+    std::string ext(path.substr(dot + 1));
+    for (char& c : ext) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    static const std::unordered_map<std::string, std::string_view> kExtensionCategories = [] {
+        std::unordered_map<std::string, std::string_view> m;
+        auto add = [&](std::initializer_list<const char*> exts, std::string_view cat) {
+            for (auto e : exts) m[e] = cat;
+        };
+        add({"txt", "md", "rst", "log", "json", "toml", "yaml", "yml", "ini", "conf", "cfg", "csv"}, "text");
+        add({"c", "cc", "cpp", "h", "hpp", "py", "js", "ts", "rs", "go", "java", "sh", "lua", "cmake"}, "code");
+        add({"png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"}, "image");
+        add({"mp3", "flac", "wav", "ogg", "mp4", "mkv", "webm", "mov"}, "media");
+        add({"pdf", "epub", "odt", "docx", "xlsx", "pptx"}, "doc");
+        add({"zip", "tar", "gz", "xz", "zst", "7z", "rar"}, "archive");
+        return m;
+    }();
+
+    auto it = kExtensionCategories.find(ext);
+    if (it != kExtensionCategories.end()) {
+        return it->second;
+    }
+    return "";
 }
 
 // //Weird wizard shit
@@ -70,72 +230,69 @@ void addToLocalCache(unsigned long inode, unsigned char f_type, size_t f_length,
     fileTable.push_back('\0');
 }
 
-bool isHidden(const char* name) {
-    return name[0] == '.' && name[1] != '\0' && !(name[1] == '.' && name[2] == '\0');
-}
-
-bool fileValChecker(std::string_view fullpath, const char *d_name) {
-    for (const auto& blacklisted : absoluteBlacklist) {
-        if (fullpath.substr(0,blacklisted.size())==blacklisted) {
-            return false;
-        }
+static void performSystemFileSearch(const std::string& currPath,
+                                   std::unordered_set<std::string>& indexedPaths,
+                                   std::unordered_set<std::string>& visitedDirs) {
+    if (!visitedDirs.insert(currPath).second) {
+        return; // Avoid cycles or redundant traversals of overlapping roots
     }
 
-    for (const auto& blacklisted : componentBlacklist) {
-        if (fullpath.find(blacklisted) != std::string_view::npos) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void performSystemFileSearch(const std::string currPath) {
-    fileEntity currFileEnt;
-    // std::ofstream file("TestFilenames.txt", std::ios::app);
-    // file << currPath+"\n";
-    struct dirent *dp;
-    struct stat st;
-    struct stat lst;
-    DIR *dirp = opendir(currPath.c_str());
-    // std::cout << dirp << std::endl;
+    DIR* dirp = opendir(currPath.c_str());
     if (dirp == nullptr) {
-	return;
+        return; // Gracefully survive permission-restricted paths (e.g. EACCES)
     }
-    // std::cout << "[PATH]" << currPath << std::endl;
 
-    while ((dp = readdir(dirp))!=NULL){
-	if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) {
-	    continue;
-	}
-	std::string currFileName = dp->d_name;
-	// std::cout << dp->d_name << std::endl;
-	currFileName = currPath + (currPath.back() == '/' ? "" : "/") + currFileName;
-	
-	if (!fileValChecker(currFileName,dp->d_name)){
-	    continue;
-	}
-	// std::cout << "[new]: " << currFileName << std::endl;
-	currFileEnt.inode = dp->d_ino;
-	currFileEnt.f_length = std::strlen(dp->d_name);
-	currFileEnt.f_type = dp->d_type ? dp->d_type : '\0';
-	currFileEnt.f_execState = ExecState::NotExecutable;
-	if (dp->d_type == DT_REG) {
-	    struct stat st;
-	    if (stat(currFileName.c_str(), &st) == 0) {
-		bool isExec = (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
-		currFileEnt.f_execState = static_cast<ExecState>(isExec);
-	    }
+    struct dirent* dp;
+    while ((dp = readdir(dirp)) != nullptr) {
+        if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) {
+            continue;
+        }
 
-	}
-	addToLocalCache(dp->d_ino, dp->d_type, currFileName.size(), currFileName, currFileEnt.f_execState);
-	if (dp->d_type == DT_DIR) {
-	    performSystemFileSearch(currFileName);
-	} 
+        if (isIgnored("", dp->d_name)) {
+            continue;
+        }
+
+        std::string currFileName = currPath + (currPath.back() == '/' ? "" : "/") + dp->d_name;
+
+        if (isIgnored(currFileName, dp->d_name)) {
+            continue;
+        }
+
+        unsigned char dType = dp->d_type;
+        if (dType == DT_UNKNOWN || dType == DT_LNK) {
+            struct stat lst;
+            if (lstat(currFileName.c_str(), &lst) == 0) {
+                if (S_ISDIR(lst.st_mode)) dType = DT_DIR;
+                else if (S_ISREG(lst.st_mode)) dType = DT_REG;
+            }
+        }
+
+        fileEntity currFileEnt;
+        currFileEnt.inode = dp->d_ino;
+        currFileEnt.f_length = std::strlen(dp->d_name);
+        currFileEnt.f_type = dType;
+        currFileEnt.f_execState = ExecState::NotExecutable;
+
+        if (dType == DT_REG) {
+            struct stat st;
+            if (stat(currFileName.c_str(), &st) == 0) {
+                bool isExec = (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
+                currFileEnt.f_execState = static_cast<ExecState>(isExec);
+            }
+        }
+
+        if (indexedPaths.insert(currFileName).second) {
+            addToLocalCache(dp->d_ino, dType, currFileName.size(), currFileName, currFileEnt.f_execState);
+        }
+
+        if (dType == DT_DIR) {
+            performSystemFileSearch(currFileName, indexedPaths, visitedDirs);
+        }
     }
     closedir(dirp);
 }
 
-void systemFileSearch(const std::string& currPath){
+void systemFileSearch(const std::vector<std::string>& searchRoots) {
     fileStructTable.clear();
     fileTable.clear();
 
@@ -145,9 +302,16 @@ void systemFileSearch(const std::string& currPath){
         std::cerr << "[ERROR] Could not open Binary Cache for writing: " << binaryCachePath << "\n";
         return;
     }
-    
-    performSystemFileSearch(currPath);
-    //Error checking or somn idk add it later
+
+    std::unordered_set<std::string> indexedPaths;
+    std::unordered_set<std::string> visitedDirs;
+
+    for (const auto& root : searchRoots) {
+        if (root.empty()) continue;
+        if (isIgnored(root, nullptr)) continue;
+        performSystemFileSearch(root, indexedPaths, visitedDirs);
+    }
+
     size_t structCount = fileStructTable.size();
     size_t charCount = fileTable.size();
 
@@ -156,7 +320,7 @@ void systemFileSearch(const std::string& currPath){
 
     if (structCount > 0) {
         binaryCacheStream.write(reinterpret_cast<const char*>(fileStructTable.data()), 
-	        structCount * sizeof(fileEntity));
+                                structCount * sizeof(fileEntity));
     }
 
     if (charCount > 0) {
@@ -164,4 +328,12 @@ void systemFileSearch(const std::string& currPath){
     }
 
     binaryCacheStream.close();
+}
+
+void systemFileSearch(const std::string& currPath) {
+    systemFileSearch(std::vector<std::string>{currPath});
+}
+
+void systemFileSearch() {
+    systemFileSearch(getDefaultSearchRoots());
 }

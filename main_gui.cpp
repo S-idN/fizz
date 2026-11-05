@@ -17,41 +17,33 @@
 
 #include "services/QueryOps.h"
 #include "services/LoadFile.h"
+#include "services/FileSearch.h"
 
 struct Tag { const char* label; ImVec4 color; };
 
+static const ImVec4 kAccent = {0.20f,  0.83f,  0.75f,  1.00f};
+
 static Tag classify(std::string_view path, ExecState state) {
-    if (state == ExecState::Executable) return {"exec", {0.95f, 0.65f, 0.25f, 1.f}};
+    std::string_view cat = classifyPath(path, state);
+    if (cat.empty()) return {nullptr, {}};
 
-    size_t slash = path.rfind('/');
-    size_t dot   = path.rfind('.');
-    if (dot == std::string_view::npos ||
-        (slash != std::string_view::npos && dot <= slash + 1))   
-        return {nullptr, {}};
-
-    std::string ext(path.substr(dot + 1));
-    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
-
+    static const ImVec4 kOrange = {0.95f, 0.65f, 0.25f, 1.f};
     static const ImVec4 kBlue   = {0.45f, 0.65f, 0.95f, 1.f};
     static const ImVec4 kPurple = {0.70f, 0.55f, 0.95f, 1.f};
     static const ImVec4 kPink   = {0.95f, 0.50f, 0.65f, 1.f};
     static const ImVec4 kGreen  = {0.55f, 0.85f, 0.45f, 1.f};
     static const ImVec4 kGrey   = {0.60f, 0.65f, 0.67f, 1.f};
 
-    static const std::unordered_map<std::string, Tag> kTags = [] {
-        std::unordered_map<std::string, Tag> m;
-        auto add = [&](std::initializer_list<const char*> exts, Tag t) { for (auto e : exts) m[e] = t; };
-        add({"txt","md","rst","log","json","toml","yaml","yml","ini","conf","cfg","csv"}, {"text",    kBlue});
-        add({"c","cc","cpp","h","hpp","py","js","ts","rs","go","java","sh","lua","cmake"}, {"code",    kPurple});
-        add({"png","jpg","jpeg","gif","webp","svg","bmp"},                                {"image",   kPink});
-        add({"mp3","flac","wav","ogg","mp4","mkv","webm","mov"},                          {"media",   kGreen});
-        add({"pdf","epub","odt","docx","xlsx","pptx"},                                    {"doc",     kBlue});
-        add({"zip","tar","gz","xz","zst","7z","rar"},                                     {"archive", kGrey});
-        return m;
-    }();
+    if (cat == "app")     return {"app",     kAccent};
+    if (cat == "exec")    return {"exec",    kOrange};
+    if (cat == "text")    return {"text",    kBlue};
+    if (cat == "code")    return {"code",    kPurple};
+    if (cat == "image")   return {"image",   kPink};
+    if (cat == "media")   return {"media",   kGreen};
+    if (cat == "doc")     return {"doc",     kBlue};
+    if (cat == "archive") return {"archive", kGrey};
 
-    auto it = kTags.find(ext);
-    return it == kTags.end() ? Tag{nullptr, {}} : it->second;
+    return {nullptr, {}};
 }
 
 void daemonRunner();  
@@ -64,7 +56,6 @@ constexpr const char* kFont = "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf";
 
 static const ImVec4 kBg     = {0.055f, 0.070f, 0.078f, 0.95f};
 static const ImVec4 kBorder = {0.16f,  0.22f,  0.24f,  1.00f};
-static const ImVec4 kAccent = {0.20f,  0.83f,  0.75f,  1.00f};
 static const ImVec4 kText   = {0.86f,  0.90f,  0.90f,  1.00f};
 static const ImVec4 kDim    = {0.45f,  0.52f,  0.54f,  1.00f};
 
