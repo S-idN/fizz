@@ -29,13 +29,6 @@ static void rebuild() {
     systemFileSearch(getDefaultSearchRoots());
 }
 
-static bool ignored(const char* name) {
-    static const char* skip[] = {".cache", ".git", "node_modules", "Trash"};
-    for (auto s : skip)
-        if (strcmp(name, s) == 0) return true;
-    return strncmp(name, ".fizzLocalCache", 15) == 0;
-}
-
 static void watch(const std::string& dir) {
     int wd = inotify_add_watch(inoFd, dir.c_str(),
                                IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
@@ -48,7 +41,7 @@ static void watchTree(const std::string& root) {
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
     for (; !ec && it != end; it.increment(ec)) {
         if (!it->is_directory(ec) || it->is_symlink(ec)) continue;
-        if (ignored(it->path().filename().c_str())) {
+        if (isPathIgnored(it->path().string(), it->path().filename().c_str())) {
             it.disable_recursion_pending();
             continue;
         }
@@ -66,7 +59,7 @@ static bool readEvents() {
             p += sizeof(inotify_event) + ev->len;
 
             if (ev->mask & IN_IGNORED) { dirOf.erase(ev->wd); continue; }   
-            if (ev->len && ignored(ev->name)) continue;
+            if (ev->len && isPathIgnored("", ev->name)) continue;
 
             changed = true;
             if ((ev->mask & IN_ISDIR) && (ev->mask & (IN_CREATE | IN_MOVED_TO)) && dirOf.count(ev->wd))

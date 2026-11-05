@@ -22,9 +22,10 @@ extern std::vector<fileEntity> fileStructTable;
 
 void systemFileSearch(const std::vector<std::string>& searchRoots);
 void systemFileSearch(const std::string& currPath);
-void systemFileSearch();
 
 std::vector<std::string> getDefaultSearchRoots(bool existingOnly = true);
+
+bool isPathIgnored(std::string_view fullpath, const char* d_name = nullptr);
 
 std::string_view classifyPath(std::string_view path, ExecState state);
 

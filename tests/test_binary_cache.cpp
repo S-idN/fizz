@@ -266,6 +266,8 @@ void test_dual_search_roots_and_traversal() {
         std::ofstream out(appDir / "sub" / "terminal.desktop");
         out << "[Desktop Entry]\nName=Terminal\nType=Application\n";
     }
+    // Simulate Flatpak symlink export
+    fs::create_symlink(appDir / "sub" / "terminal.desktop", appDir / "flatpak_app.desktop", ec);
 
     // Make restricted_dir unreadable (permission denied)
     {
@@ -281,7 +283,7 @@ void test_dual_search_roots_and_traversal() {
     std::vector<std::string> searchRoots = { userHome.string(), appDir.string() };
     systemFileSearch(searchRoots);
 
-    // Verify cache file was generated
+    // Verify Binary Cache was generated
     TEST_ASSERT(fs::exists(cachePath));
     TEST_ASSERT(fs::file_size(cachePath) > 0);
 
@@ -293,6 +295,7 @@ void test_dual_search_roots_and_traversal() {
     bool foundProject = false;
     bool foundEditorDesktop = false;
     bool foundTerminalDesktop = false;
+    bool foundFlatpakSymlink = false;
     bool foundIgnoredCache = false;
     bool foundIgnoredGit = false;
     int projectCount = 0;
@@ -307,8 +310,18 @@ void test_dual_search_roots_and_traversal() {
             foundProject = true;
             projectCount++;
         }
-        if (pathStr.find("editor.desktop") != std::string::npos) foundEditorDesktop = true;
-        if (pathStr.find("terminal.desktop") != std::string::npos) foundTerminalDesktop = true;
+        if (pathStr.find("editor.desktop") != std::string::npos) {
+            foundEditorDesktop = true;
+            TEST_ASSERT(classifyPath(pathStr, ent.f_execState) == "app");
+        }
+        if (pathStr.find("terminal.desktop") != std::string::npos) {
+            foundTerminalDesktop = true;
+            TEST_ASSERT(classifyPath(pathStr, ent.f_execState) == "app");
+        }
+        if (pathStr.find("flatpak_app.desktop") != std::string::npos) {
+            foundFlatpakSymlink = true;
+            TEST_ASSERT(classifyPath(pathStr, ent.f_execState) == "app");
+        }
         if (pathStr.find(".cache") != std::string::npos) foundIgnoredCache = true;
         if (pathStr.find(".git") != std::string::npos) foundIgnoredGit = true;
     }
@@ -317,6 +330,7 @@ void test_dual_search_roots_and_traversal() {
     TEST_ASSERT(foundProject);
     TEST_ASSERT(foundEditorDesktop);
     TEST_ASSERT(foundTerminalDesktop);
+    TEST_ASSERT(foundFlatpakSymlink);
     TEST_ASSERT(!foundIgnoredCache);
     TEST_ASSERT(!foundIgnoredGit);
     TEST_ASSERT(projectCount == 1);

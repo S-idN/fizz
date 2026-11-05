@@ -14,8 +14,8 @@
 
 namespace fs = std::filesystem;
 
-// Ignore rules: skip system mount paths, common cache/vcs directories, and cache files
-static bool isIgnored(std::string_view fullpath, const char* d_name) {
+// Ignore rules: skip system mount paths, common cache/vcs directories, and Binary Cache files
+bool isPathIgnored(std::string_view fullpath, const char* d_name) {
     if (d_name) {
         if (strcmp(d_name, ".cache") == 0 ||
             strcmp(d_name, ".git") == 0 ||
@@ -88,7 +88,9 @@ std::vector<std::string> getDefaultSearchRoots(bool existingOnly) {
     }
 
     // Flatpak user exports
-    if (!home.empty()) {
+    if (xdgDataHome && xdgDataHome[0] != '\0') {
+        candidates.push_back(std::string(xdgDataHome) + "/flatpak/exports/share/applications");
+    } else if (!home.empty()) {
         candidates.push_back(home + "/.local/share/flatpak/exports/share/applications");
     }
 
@@ -248,22 +250,22 @@ static void performSystemFileSearch(const std::string& currPath,
             continue;
         }
 
-        if (isIgnored("", dp->d_name)) {
+        if (isPathIgnored("", dp->d_name)) {
             continue;
         }
 
         std::string currFileName = currPath + (currPath.back() == '/' ? "" : "/") + dp->d_name;
 
-        if (isIgnored(currFileName, dp->d_name)) {
+        if (isPathIgnored(currFileName, dp->d_name)) {
             continue;
         }
 
         unsigned char dType = dp->d_type;
         if (dType == DT_UNKNOWN || dType == DT_LNK) {
-            struct stat lst;
-            if (lstat(currFileName.c_str(), &lst) == 0) {
-                if (S_ISDIR(lst.st_mode)) dType = DT_DIR;
-                else if (S_ISREG(lst.st_mode)) dType = DT_REG;
+            struct stat targetStat;
+            if (stat(currFileName.c_str(), &targetStat) == 0) {
+                if (S_ISDIR(targetStat.st_mode)) dType = DT_DIR;
+                else if (S_ISREG(targetStat.st_mode)) dType = DT_REG;
             }
         }
 
@@ -308,7 +310,7 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
 
     for (const auto& root : searchRoots) {
         if (root.empty()) continue;
-        if (isIgnored(root, nullptr)) continue;
+        if (isPathIgnored(root, nullptr)) continue;
         performSystemFileSearch(root, indexedPaths, visitedDirs);
     }
 
@@ -332,8 +334,4 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
 
 void systemFileSearch(const std::string& currPath) {
     systemFileSearch(std::vector<std::string>{currPath});
-}
-
-void systemFileSearch() {
-    systemFileSearch(getDefaultSearchRoots());
 }
