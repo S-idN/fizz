@@ -37,8 +37,14 @@ static Tag classify(std::string_view path, ExecState state) {
     static const ImVec4 kPink   = {0.95f, 0.50f, 0.65f, 1.f};
     static const ImVec4 kGreen  = {0.55f, 0.85f, 0.45f, 1.f};
     static const ImVec4 kGrey   = {0.60f, 0.65f, 0.67f, 1.f};
+    static const ImVec4 kAmber  = {0.95f, 0.70f, 0.10f, 1.f};
 
-    if (cat == "app")     return {"app",     kAccent};
+    if (cat == "app") {
+        if (!isDesktopEntryTrusted(path)) {
+            return {"untrusted-app", kAmber};
+        }
+        return {"app",     kAccent};
+    }
     if (cat == "exec")    return {"exec",    kOrange};
     if (cat == "text")    return {"text",    kBlue};
     if (cat == "code")    return {"code",    kPurple};
@@ -111,7 +117,7 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     float nameW = ImGui::CalcTextSize(name.data(), name.data() + name.size()).x;
 
     Tag tag = classify(path, state);
-    static const float badgeW = ImGui::CalcTextSize("archive").x + 12;   
+    float badgeW = tag.label ? ImGui::CalcTextSize(tag.label).x + 12.f : 0.f;
     const float rightPad = 10.f;
     const float textRight = tag.label ? max.x - rightPad - badgeW - 8 : max.x;
 
@@ -180,6 +186,7 @@ int main() {
     results.reserve(kMaxHits);
     int selected = 0;
     bool scrollToSel = false;
+    std::string warningMsg;
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -204,17 +211,25 @@ int main() {
                 searchPaths(q, results, kMaxHits);
                 lastQuery.assign(q);
                 selected = 0;
+                warningMsg.clear();
             }
         }
 
         const int n = (int)results.size();
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) { ++selected; scrollToSel = true; }
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { --selected; scrollToSel = true; }
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) { ++selected; scrollToSel = true; warningMsg.clear(); }
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { --selected; scrollToSel = true; warningMsg.clear(); }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) glfwSetWindowShouldClose(window, 1);
 
         int chosen = -1;
-        if ((ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) && n > 0)
-            chosen = selected;
+        bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+        if (enterPressed && n > 0) {
+            bool isUntrusted = isDesktopEntry(results[selected].path) && !isDesktopEntryTrusted(results[selected].path);
+            if (isUntrusted && !io.KeyCtrl) {
+                warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
+            } else {
+                chosen = selected;
+            }
+        }
 
         ImGui::Separator();
 
@@ -223,14 +238,26 @@ int main() {
 	    ImGui::PushID(i);
 	    if (drawRow(results[i].path, results[i].execState, i == selected)) {
 		selected = i;
-		if (ImGui::IsMouseDoubleClicked(0)) chosen = i;
+		if (ImGui::IsMouseDoubleClicked(0)) {
+		    bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
+		    if (isUntrusted && !io.KeyCtrl) {
+			warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
+		    } else {
+			chosen = i;
+		    }
+		}
 	    }
 	    if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
 	    ImGui::PopID();
 	}
 	if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
 	ImGui::EndChild();
-	ImGui::TextDisabled("%d hits   enter open   shift+enter open folder   esc quit", n);
+	if (!warningMsg.empty()) {
+	    static const ImVec4 kAmber = {0.95f, 0.70f, 0.10f, 1.f};
+	    ImGui::TextColored(kAmber, "%s", warningMsg.c_str());
+	} else {
+	    ImGui::TextDisabled("%d hits   enter open   shift+enter open folder   esc quit", n);
+	}
 	ImGui::End();
 
         if (chosen >= 0) {

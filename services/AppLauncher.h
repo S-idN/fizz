@@ -14,6 +14,10 @@ enum class DesktopLauncherBackend {
 
 bool isDesktopEntry(std::string_view path);
 
+// Returns true if the Desktop Entry lives under a standard FreeDesktop application directory.
+// Desktop Entries outside these trusted paths are considered Untrusted Desktop Entries.
+bool isDesktopEntryTrusted(std::string_view path);
+
 // Extract and parse command arguments from a Desktop Entry's [Desktop Entry] Exec= line
 std::vector<std::string> parseDesktopExec(const std::string& desktopEntryPath);
 
