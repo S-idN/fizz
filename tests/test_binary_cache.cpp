@@ -91,17 +91,32 @@ void test_binary_cache_sandboxed_roundtrip() {
         const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
         std::string name(namePtr);
 
+        // After lazy traversal, f_execState is Unknown until a search hit resolves it
         if (name.find("tool.sh") != std::string::npos) {
             foundTool = true;
-            TEST_ASSERT(ent.f_execState == ExecState::Executable);
+            TEST_ASSERT(ent.f_execState == ExecState::Unknown ||
+                        ent.f_execState == ExecState::Executable);
         } else if (name.find("note.txt") != std::string::npos) {
             foundDoc = true;
-            TEST_ASSERT(ent.f_execState == ExecState::NotExecutable);
+            TEST_ASSERT(ent.f_execState == ExecState::Unknown ||
+                        ent.f_execState == ExecState::NotExecutable);
         }
     }
 
     TEST_ASSERT(foundTool);
     TEST_ASSERT(foundDoc);
+
+    // Trigger lazy exec resolution via searchPaths and verify exec state is resolved correctly
+    std::vector<SearchHit> hits;
+    searchPaths("tool", hits, 10);
+    bool toolHitFound = false;
+    for (const auto& hit : hits) {
+        if (hit.path.find("tool.sh") != std::string::npos) {
+            toolHitFound = true;
+            TEST_ASSERT(hit.execState == ExecState::Executable);
+        }
+    }
+    TEST_ASSERT(toolHitFound);
 
     // Reset override and clean up
     setBinaryCachePath("");
@@ -654,6 +669,193 @@ void test_binary_cache_deserialization_validation() {
     std::cout << "[PASS] test_binary_cache_deserialization_validation passed.\n";
 }
 
+// ---------------------------------------------------------------------------
+// Seam 1: sensitive directory exclusion
+// ---------------------------------------------------------------------------
+void test_sensitive_directory_exclusion() {
+    std::cout << "[TEST] Running test_sensitive_directory_exclusion...\n";
+
+    fs::path sandbox = fs::temp_directory_path() / "fizz_test_sensitive_excl";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+
+    // Sensitive directories that must be excluded by default
+    struct SensitiveDir { const char* rel; const char* file; };
+    static const SensitiveDir sensitiveDirs[] = {
+        { ".ssh",                   "id_rsa"            },
+        { ".gnupg",                 "secring.gpg"       },
+        { ".aws",                   "credentials"       },
+        { ".azure",                 "credentials"       },
+        { ".config/gcloud",         "access_token.db"   },
+        { ".local/share/keyrings",  "login.keyring"     },
+    };
+
+    for (const auto& sd : sensitiveDirs) {
+        fs::create_directories(sandbox / sd.rel, ec);
+        std::ofstream(sandbox / sd.rel / sd.file) << "secret\n";
+    }
+
+    // A regular (non-sensitive) file that SHOULD be found
+    fs::create_directories(sandbox / "docs", ec);
+    std::ofstream(sandbox / "docs" / "readme.txt") << "hello\n";
+
+    fs::path cachePath = sandbox / "sensitive_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    setCustomIgnoreRules({});   // ensure no leftover custom rules
+
+    systemFileSearch(sandbox.string());
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    bool foundReadme = false;
+    for (const auto& ent : fileStructTable) {
+        const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
+        std::string path(namePtr);
+
+        // None of the secret files should appear in results
+        TEST_ASSERT(path.find("id_rsa")           == std::string::npos);
+        TEST_ASSERT(path.find("secring.gpg")       == std::string::npos);
+        TEST_ASSERT(path.find(".aws")              == std::string::npos);
+        TEST_ASSERT(path.find(".azure")            == std::string::npos);
+        TEST_ASSERT(path.find("access_token.db")   == std::string::npos);
+        TEST_ASSERT(path.find("login.keyring")     == std::string::npos);
+
+        if (path.find("readme.txt") != std::string::npos)
+            foundReadme = true;
+    }
+
+    TEST_ASSERT(foundReadme);
+
+    setBinaryCachePath("");
+    fs::remove_all(sandbox, ec);
+
+    std::cout << "[PASS] test_sensitive_directory_exclusion passed.\n";
+}
+
+// ---------------------------------------------------------------------------
+// Seam 1 (composition): user custom rules still apply alongside defaults
+// ---------------------------------------------------------------------------
+void test_custom_ignore_rules_compose_with_defaults() {
+    std::cout << "[TEST] Running test_custom_ignore_rules_compose_with_defaults...\n";
+
+    fs::path sandbox = fs::temp_directory_path() / "fizz_test_custom_compose";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+
+    // A file in a default-excluded directory
+    fs::create_directories(sandbox / ".ssh", ec);
+    std::ofstream(sandbox / ".ssh" / "id_rsa") << "secret\n";
+
+    // A file in a user-excluded directory
+    fs::create_directories(sandbox / "private_stuff", ec);
+    std::ofstream(sandbox / "private_stuff" / "token.txt") << "secret\n";
+
+    // A file that should be found
+    fs::create_directories(sandbox / "public", ec);
+    std::ofstream(sandbox / "public" / "hello.txt") << "world\n";
+
+    fs::path cachePath = sandbox / "compose_cache.bin";
+    setBinaryCachePath(cachePath.string());
+
+    // Set a custom rule that excludes "private_stuff"
+    setCustomIgnoreRules({"private_stuff"});
+    systemFileSearch(sandbox.string());
+    // Clear custom rules after use so other tests are unaffected
+    setCustomIgnoreRules({});
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    bool foundHello = false;
+    for (const auto& ent : fileStructTable) {
+        const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
+        std::string path(namePtr);
+
+        // Default exclusion must still apply
+        TEST_ASSERT(path.find("id_rsa")      == std::string::npos);
+        // User custom exclusion must also apply
+        TEST_ASSERT(path.find("token.txt")   == std::string::npos);
+
+        if (path.find("hello.txt") != std::string::npos)
+            foundHello = true;
+    }
+
+    TEST_ASSERT(foundHello);
+
+    setBinaryCachePath("");
+    fs::remove_all(sandbox, ec);
+
+    std::cout << "[PASS] test_custom_ignore_rules_compose_with_defaults passed.\n";
+}
+
+// ---------------------------------------------------------------------------
+// Seam 2 & 3: traversal marks files Unknown; lazy resolution via searchPaths
+// ---------------------------------------------------------------------------
+void test_traversal_no_stat_on_regular_files() {
+    std::cout << "[TEST] Running test_traversal_no_stat_on_regular_files...\n";
+
+    fs::path sandbox = fs::temp_directory_path() / "fizz_test_lazy_exec";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+
+    fs::path execFile = sandbox / "run.sh";
+    { std::ofstream f(execFile); f << "#!/bin/sh\n"; }
+    chmod(execFile.c_str(), 0755);
+
+    fs::path textFile = sandbox / "data.txt";
+    { std::ofstream f(textFile); f << "plain text\n"; }
+    chmod(textFile.c_str(), 0644);
+
+    fs::path cachePath = sandbox / "lazy_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    setCustomIgnoreRules({});
+
+    systemFileSearch(sandbox.string());
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    // After traversal, all regular files must have ExecState::Unknown (no stat done)
+    for (const auto& ent : fileStructTable) {
+        const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
+        std::string path(namePtr);
+        if (path.find("run.sh") != std::string::npos ||
+            path.find("data.txt") != std::string::npos) {
+            TEST_ASSERT(ent.f_execState == ExecState::Unknown);
+        }
+    }
+
+    // After searchPaths(), exec state must be lazily resolved correctly
+    std::vector<SearchHit> hits;
+    searchPaths("run", hits, 10);
+    bool foundExec = false;
+    for (const auto& hit : hits) {
+        if (hit.path.find("run.sh") != std::string::npos) {
+            foundExec = true;
+            TEST_ASSERT(hit.execState == ExecState::Executable);
+        }
+    }
+    TEST_ASSERT(foundExec);
+
+    hits.clear();
+    searchPaths("data", hits, 10);
+    bool foundNonExec = false;
+    for (const auto& hit : hits) {
+        if (hit.path.find("data.txt") != std::string::npos) {
+            foundNonExec = true;
+            TEST_ASSERT(hit.execState == ExecState::NotExecutable);
+        }
+    }
+    TEST_ASSERT(foundNonExec);
+
+    setBinaryCachePath("");
+    fs::remove_all(sandbox, ec);
+
+    std::cout << "[PASS] test_traversal_no_stat_on_regular_files passed.\n";
+}
+
 void run_binary_cache_tests() {
     test_file_classification();
     test_default_search_roots();
@@ -664,4 +866,7 @@ void run_binary_cache_tests() {
     test_query_matcher_end_to_end();
     test_binary_cache_atomic_publication_and_permissions();
     test_binary_cache_deserialization_validation();
+    test_sensitive_directory_exclusion();
+    test_custom_ignore_rules_compose_with_defaults();
+    test_traversal_no_stat_on_regular_files();
 }

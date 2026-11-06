@@ -6,7 +6,8 @@
 
 enum class ExecState : unsigned char {
     NotExecutable = 0,
-    Executable = 1
+    Executable = 1,
+    Unknown = 2   ///< Deferred — resolve lazily via access(X_OK) at display/launch time
 };
 
 struct fileEntity {

@@ -54,7 +54,12 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
         if (strcmp(d_name, ".cache") == 0 ||
             strcmp(d_name, ".git") == 0 ||
             strcmp(d_name, "node_modules") == 0 ||
-            strcmp(d_name, "Trash") == 0) {
+            strcmp(d_name, "Trash") == 0 ||
+            // Default sensitive/secret directory exclusions
+            strcmp(d_name, ".ssh") == 0 ||
+            strcmp(d_name, ".gnupg") == 0 ||
+            strcmp(d_name, ".aws") == 0 ||
+            strcmp(d_name, ".azure") == 0) {
             return true;
         }
         if (strncmp(d_name, ".fizzLocalCache", 15) == 0) {
@@ -74,7 +79,14 @@ bool isPathIgnored(std::string_view fullpath, const char* d_name) {
         "/.git",
         "/node_modules",
         "/Trash",
-        "/.local/share/Trash"
+        "/.local/share/Trash",
+        // Default sensitive/secret path component exclusions
+        "/.ssh",
+        "/.gnupg",
+        "/.aws",
+        "/.azure",
+        "/.config/gcloud",
+        "/.local/share/keyrings"
     };
     for (auto comp : componentIgnores) {
         if (hasComponent(fullpath, comp)) {
@@ -327,15 +339,10 @@ static void performSystemFileSearch(const std::string& currPath,
         currFileEnt.inode = dp->d_ino;
         currFileEnt.f_length = std::strlen(dp->d_name);
         currFileEnt.f_type = dType;
-        currFileEnt.f_execState = ExecState::NotExecutable;
-
-        if (dType == DT_REG) {
-            struct stat st;
-            if (stat(currFileName.c_str(), &st) == 0) {
-                bool isExec = (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
-                currFileEnt.f_execState = static_cast<ExecState>(isExec);
-            }
-        }
+        // Executable permission is NOT checked during traversal to avoid a stat(2) syscall
+        // per regular file. The state is deferred to ExecState::Unknown and resolved lazily
+        // via access(X_OK) only when a Search Hit is about to be displayed or launched.
+        currFileEnt.f_execState = ExecState::Unknown;
 
         if (indexedPaths.insert(currFileName).second) {
             addToLocalCache(dp->d_ino, dType, currFileName.size(), currFileName, currFileEnt.f_execState);

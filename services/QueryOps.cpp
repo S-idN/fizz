@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 #include <string_view>
 #include "LoadFile.h"
@@ -149,8 +151,15 @@ static ExecState lookupExecState(std::string_view path) {
     const size_t off = static_cast<size_t>(path.data() - g_InMemoryIndexBuffer.data());
     auto it = std::lower_bound(fileStructTable.begin(), fileStructTable.end(), off,
         [](const fileEntity& e, size_t v) { return e.f_offset < v; });
-    if (it != fileStructTable.end() && it->f_offset == off)
+    if (it != fileStructTable.end() && it->f_offset == off) {
+        // Lazily resolve Unknown exec state via access(2) only when a hit is surfaced.
+        if (it->f_execState == ExecState::Unknown) {
+            std::string pathStr(path);
+            bool isExec = (access(pathStr.c_str(), X_OK) == 0);
+            it->f_execState = isExec ? ExecState::Executable : ExecState::NotExecutable;
+        }
         return it->f_execState;
+    }
     return ExecState::NotExecutable;
 }
 } 
