@@ -219,9 +219,12 @@ uninstall_binaries() {
 
 uninstall_fizz() {
     local purge="${1:-0}"
+    local no_hotkey="${2:-0}"
     echo "Uninstalling Fizz..."
     uninstall_service
-    unhotkey_all
+    if [ "$no_hotkey" -eq 0 ]; then
+        unhotkey_all
+    fi
     uninstall_binaries
 
     if [ "$purge" -eq 1 ]; then
@@ -281,7 +284,7 @@ main() {
     done
 
     if [ "$uninstall" -eq 1 ]; then
-        uninstall_fizz "$purge"
+        uninstall_fizz "$purge" "$no_hotkey"
         return 0
     fi
 

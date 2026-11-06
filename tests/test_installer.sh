@@ -503,6 +503,96 @@ EOF
 test_sandbox_lifecycle
 test_sandbox_autostart_fallback
 
+# -----------------------------------------------------------------------------
+# Seam 5: uninstall.sh --no-hotkey flag
+# -----------------------------------------------------------------------------
+echo "--- Seam 5: uninstall.sh --no-hotkey ---"
+
+test_uninstall_no_hotkey_skips_hotkey_removal() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local hypr_conf="$tmp_dir/.config/hypr/hyprland.conf"
+    mkdir -p "$(dirname "$hypr_conf")"
+
+    # Write a hyprland config with a fizz hotkey sentinel already in place
+    cat > "$hypr_conf" <<'EOF'
+# User config
+monitor=,preferred,auto,1
+
+# BEGIN FIZZ HOTKEY
+bind = CTRL SUPER, SPACE, exec, /home/user/.local/bin/fizz-search
+# END FIZZ HOTKEY
+EOF
+
+    local mock_bin="$tmp_dir/mock_bin"
+    mkdir -p "$mock_bin"
+    # Mock systemctl so uninstall doesn't touch real systemd
+    cat > "$mock_bin/systemctl" <<'SEOF'
+#!/usr/bin/env bash
+exit 0
+SEOF
+    chmod +x "$mock_bin/systemctl"
+
+    (
+        export HOME="$tmp_dir"
+        export PATH="$mock_bin:$PATH"
+        export FIZZ_HYPR_CONF="$hypr_conf"
+
+        # Uninstall with --no-hotkey: sentinel must remain untouched
+        "$UNINSTALL_SH" --no-hotkey 2>/dev/null || true
+    )
+
+    local content
+    content=$(cat "$hypr_conf")
+    assert_contains "BEGIN FIZZ HOTKEY" "$content" "--no-hotkey leaves hotkey sentinel in hyprland.conf"
+
+    rm -rf "$tmp_dir"
+}
+
+test_uninstall_default_removes_hotkey() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local hypr_conf="$tmp_dir/.config/hypr/hyprland.conf"
+    mkdir -p "$(dirname "$hypr_conf")"
+
+    cat > "$hypr_conf" <<'EOF'
+# User config
+monitor=,preferred,auto,1
+
+# BEGIN FIZZ HOTKEY
+bind = CTRL SUPER, SPACE, exec, /home/user/.local/bin/fizz-search
+# END FIZZ HOTKEY
+EOF
+
+    local mock_bin="$tmp_dir/mock_bin"
+    mkdir -p "$mock_bin"
+    cat > "$mock_bin/systemctl" <<'SEOF'
+#!/usr/bin/env bash
+exit 0
+SEOF
+    chmod +x "$mock_bin/systemctl"
+
+    (
+        export HOME="$tmp_dir"
+        export PATH="$mock_bin:$PATH"
+        export FIZZ_HYPR_CONF="$hypr_conf"
+
+        # Default uninstall (without --no-hotkey): sentinel must be removed
+        "$UNINSTALL_SH" 2>/dev/null || true
+    )
+
+    local content
+    content=$(cat "$hypr_conf")
+    assert_not_contains "FIZZ HOTKEY" "$content" "default uninstall removes hotkey sentinel from hyprland.conf"
+
+    rm -rf "$tmp_dir"
+}
+
+test_uninstall_no_hotkey_skips_hotkey_removal
+test_uninstall_default_removes_hotkey
+
 if [ "$FAILED" -ne 0 ]; then
     echo "Tests failed with $FAILED failure(s)."
     exit 1

@@ -91,6 +91,13 @@ target_link_libraries(fizz_tests PRIVATE Threads::Threads)
 
 enable_testing()
 add_test(NAME fizz_tests COMMAND fizz_tests)
-add_test(NAME test_installer COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_installer.sh)
+
+# Installer lifecycle tests run install.sh / uninstall.sh against the host.
+# They are EXCLUDED from the default CTest run to keep it 100 % hermetic.
+# Enable with:  cmake -DFIZZ_INSTALLER_TESTS=ON ..
+option(FIZZ_INSTALLER_TESTS "Include installer lifecycle tests in CTest (non-hermetic, touches host env)" OFF)
+if(FIZZ_INSTALLER_TESTS)
+    add_test(NAME test_installer COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_installer.sh)
+endif()
 
 install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)
