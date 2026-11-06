@@ -6,6 +6,7 @@ void run_font_discovery_tests();
 void run_config_tests();
 void run_binary_cache_tests();
 void run_theme_tests();
+void run_search_ui_tests();
 
 int main() {
     run_app_launcher_tests();
@@ -14,6 +15,7 @@ int main() {
     run_config_tests();
     run_binary_cache_tests();
     run_theme_tests();
+    run_search_ui_tests();
 
     std::cout << "All tests passed successfully.\n";
     return 0;

@@ -22,6 +22,7 @@ set(SERVICES_SOURCES
     services/LoadFile.cpp
     services/QueryOps.cpp
     services/Theme.cpp
+    services/SearchUi.cpp
 )
 
 set(IMGUI_CORE_SOURCES
@@ -79,6 +80,7 @@ add_executable(fizz_tests
     tests/test_focus_tracker.cpp
     tests/test_font_discovery.cpp
     tests/test_theme.cpp
+    tests/test_search_ui.cpp
     services/Config.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
@@ -87,6 +89,7 @@ add_executable(fizz_tests
     services/AppLauncher.cpp
     services/QueryOps.cpp
     services/Theme.cpp
+    services/SearchUi.cpp
     ${IMGUI_CORE_SOURCES}
 )
 

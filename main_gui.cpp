@@ -23,6 +23,7 @@
 #include "services/FocusTracker.h"
 #include "services/FontDiscovery.h"
 #include "services/Theme.h"
+#include "services/SearchUi.h"
 
 struct Tag { const char* label; ImVec4 color; };
 
@@ -135,7 +136,7 @@ int main() {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;                  
     std::string fontPath = resolveSystemFont();
-    if (fontPath.empty() || !io.Fonts->AddFontFromFileTTF(fontPath.c_str(), kFontPx)) {
+    if (fontPath.empty() || !io.Fonts->AddFontFromFileTTF(fontPath.c_str(), kFontPx, nullptr, fizz::ui::getUiGlyphRanges())) {
         io.Fonts->AddFontDefault();
     }
     ImGui::StyleColorsDark();
@@ -162,13 +163,8 @@ int main() {
         ImGui::SetNextWindowSize(io.DisplaySize);
         ImGui::Begin("fizz", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
-        // prompt line: "> query"
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(fizz::theme::Palette::kAccent, ">");
-        ImGui::SameLine(0, 8);
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::SetKeyboardFocusHere();         
-        if (ImGui::InputText("##q", buf, sizeof(buf))) {
+        // Search pill: integrated rounded pill with prompt glyph and placeholder hint
+        if (fizz::ui::renderSearchPill(buf, sizeof(buf), fizz::ui::kDefaultPlaceholderText)) {
             std::string_view q(buf);
             if (q != lastQuery) {
                 searchPaths(q, results, kMaxHits);
@@ -194,33 +190,30 @@ int main() {
             }
         }
 
-        ImGui::Separator();
+        float footerReserve = fizz::ui::Metrics::kFooterHeight + ImGui::GetStyle().ItemSpacing.y;
+        ImGui::BeginChild("results", {0, -footerReserve}, ImGuiChildFlags_Borders);
+        for (int i = 0; i < n; ++i) {
+            ImGui::PushID(i);
+            if (drawRow(results[i].path, results[i].execState, i == selected)) {
+                selected = i;
+                if (ImGui::IsMouseDoubleClicked(0)) {
+                    bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
+                    if (isUntrusted && !io.KeyCtrl) {
+                        warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
+                    } else {
+                        chosen = i;
+                    }
+                }
+            }
+            if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
+            ImGui::PopID();
+        }
+        if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
+        ImGui::EndChild();
 
-	ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()}, ImGuiChildFlags_Borders);
-	for (int i = 0; i < n; ++i) {
-	    ImGui::PushID(i);
-	    if (drawRow(results[i].path, results[i].execState, i == selected)) {
-		selected = i;
-		if (ImGui::IsMouseDoubleClicked(0)) {
-		    bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
-		    if (isUntrusted && !io.KeyCtrl) {
-			warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
-		    } else {
-			chosen = i;
-		    }
-		}
-	    }
-	    if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
-	    ImGui::PopID();
-	}
-	if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
-	ImGui::EndChild();
-	if (!warningMsg.empty()) {
-	    ImGui::TextColored(fizz::theme::Palette::kAmber, "%s", warningMsg.c_str());
-	} else {
-	    ImGui::TextDisabled("%d hits   enter open   shift+enter open folder   esc quit", n);
-	}
-	ImGui::End();
+        // Pinned status footer: search hit count and keyboard navigation shortcuts
+        fizz::ui::renderStatusFooter(n, warningMsg);
+        ImGui::End();
 
         if (chosen >= 0) {
             launchTarget(results[chosen].path, results[chosen].execState, io.KeyShift);
