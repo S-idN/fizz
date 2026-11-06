@@ -856,6 +856,94 @@ void test_traversal_no_stat_on_regular_files() {
     std::cout << "[PASS] test_traversal_no_stat_on_regular_files passed.\n";
 }
 
+void test_traversal_throughput_and_stat_avoidance() {
+    std::cout << "[TEST] Running test_traversal_throughput_and_stat_avoidance...\n";
+
+    fs::path sandbox = fs::temp_directory_path() / "fizz_test_sandbox_throughput";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox, ec);
+
+    constexpr int kDirs = 10;
+    constexpr int kFilesPerDir = 100;
+    constexpr int kTotalFiles = kDirs * kFilesPerDir;
+
+    // Generate 1,000 files across 10 subdirectories
+    for (int d = 0; d < kDirs; ++d) {
+        fs::path dir = sandbox / ("sub_" + std::to_string(d));
+        fs::create_directories(dir, ec);
+        for (int f = 0; f < kFilesPerDir; ++f) {
+            fs::path filePath = dir / ("file_" + std::to_string(f) + ".txt");
+            std::ofstream out(filePath);
+            out << "content";
+            out.close();
+            // Alternate between executable and non-executable
+            if (f % 2 == 0) {
+                chmod(filePath.c_str(), 0755);
+            } else {
+                chmod(filePath.c_str(), 0644);
+            }
+        }
+    }
+
+    fs::path cachePath = sandbox / "throughput_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    setCustomIgnoreRules({});
+
+    // Profile traversal without per-file stat syscalls
+    auto start = std::chrono::high_resolution_clock::now();
+    systemFileSearch(sandbox.string());
+    auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
+    double elapsedSec = elapsedUs / 1000000.0;
+    double throughput = (elapsedSec > 0.0) ? (kTotalFiles / elapsedSec) : 0.0;
+    std::cout << "  [BENCHMARK] Traversed " << kTotalFiles << " files in "
+              << elapsedUs << " us (" << std::fixed << throughput << " files/sec).\n";
+
+    // Traversal of 1,000 local files must complete in under 200ms
+    TEST_ASSERT(elapsedUs < 200000);
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+
+    // Verify all indexed files hold ExecState::Unknown (no synchronous stat during traversal)
+    size_t count = 0;
+    for (const auto& ent : fileStructTable) {
+        const char* namePtr = &g_InMemoryIndexBuffer[ent.f_offset];
+        std::string path(namePtr);
+        if (path.find("sub_") != std::string::npos && path.find("file_") != std::string::npos) {
+            count++;
+            TEST_ASSERT(ent.f_execState == ExecState::Unknown);
+        }
+    }
+    TEST_ASSERT(count == kTotalFiles);
+
+    // Verify lazy resolution resolves Search Hits on demand
+    std::vector<SearchHit> hits;
+    searchPaths("file_0.txt", hits, 10);
+    TEST_ASSERT(!hits.empty());
+    for (const auto& hit : hits) {
+        if (hit.path.find("file_0.txt") != std::string::npos) {
+            TEST_ASSERT(hit.execState == ExecState::Executable);
+        }
+    }
+
+    hits.clear();
+    searchPaths("file_1.txt", hits, 10);
+    TEST_ASSERT(!hits.empty());
+    for (const auto& hit : hits) {
+        if (hit.path.find("file_1.txt") != std::string::npos) {
+            TEST_ASSERT(hit.execState == ExecState::NotExecutable);
+        }
+    }
+
+    setBinaryCachePath("");
+    fs::remove_all(sandbox, ec);
+
+    std::cout << "[PASS] test_traversal_throughput_and_stat_avoidance passed.\n";
+}
+
 void run_binary_cache_tests() {
     test_file_classification();
     test_default_search_roots();
@@ -869,4 +957,5 @@ void run_binary_cache_tests() {
     test_sensitive_directory_exclusion();
     test_custom_ignore_rules_compose_with_defaults();
     test_traversal_no_stat_on_regular_files();
+    test_traversal_throughput_and_stat_avoidance();
 }

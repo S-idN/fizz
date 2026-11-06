@@ -200,6 +200,17 @@ void test_build_launch_command() {
 void test_is_desktop_entry_trusted() {
     std::cout << "[TEST] Running test_is_desktop_entry_trusted...\n";
 
+    const auto& trustedDirs = getTrustedApplicationDirectories();
+    LAUNCHER_TEST_ASSERT(!trustedDirs.empty());
+    bool hasUsrShare = false;
+    for (const auto& dir : trustedDirs) {
+        if (dir == "/usr/share/applications/") {
+            hasUsrShare = true;
+            break;
+        }
+    }
+    LAUNCHER_TEST_ASSERT(hasUsrShare);
+
     // Standard FreeDesktop application directories -> trusted
     LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted("/usr/share/applications/firefox.desktop"));
     LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted("/usr/local/share/applications/myapp.desktop"));

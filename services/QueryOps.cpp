@@ -147,12 +147,20 @@ void searchSegment(std::string_view seg, const PreparedQuery& pq, int maxDist,
     }
 }
 
+/**
+ * @brief Lazily resolves the ExecState of a candidate Search Hit.
+ *
+ * Traversal intentionally sets ExecState::Unknown to avoid synchronous per-file
+ * stat(2) calls during indexing. When a candidate Search Hit is ready to be surfaced,
+ * its executable permission is resolved via access(2) and cached back into the
+ * in-memory fileStructTable.
+ */
 static ExecState lookupExecState(std::string_view path) {
     const size_t off = static_cast<size_t>(path.data() - g_InMemoryIndexBuffer.data());
     auto it = std::lower_bound(fileStructTable.begin(), fileStructTable.end(), off,
         [](const fileEntity& e, size_t v) { return e.f_offset < v; });
     if (it != fileStructTable.end() && it->f_offset == off) {
-        // Lazily resolve Unknown exec state via access(2) only when a hit is surfaced.
+        // Lazily resolve Unknown exec state via access(2) only when a Search Hit is surfaced.
         if (it->f_execState == ExecState::Unknown) {
             std::string pathStr(path);
             bool isExec = (access(pathStr.c_str(), X_OK) == 0);
@@ -214,13 +222,14 @@ void searchPaths(std::string_view query, std::vector<SearchHit>& out, size_t lim
         return a.path.data() < b.path.data();      
     });
     if (out.size() > limit) out.resize(limit);
+    // Resolve executable status lazily for displayed Search Hits
     for (auto& h : out) h.execState = lookupExecState(h.path);
 }
 
 void performSearch(const std::string& inpString) {
     std::vector<SearchHit> hits;
     searchPaths(inpString, hits, 100);
-    std::cout << "\n--- Search Results (Sorted by Relevance) ---\n";
+    std::cout << "\n--- Search Hits (Sorted by Relevance) ---\n";
     for (const auto& h : hits)
         std::cout << "[Score: " << h.score << "] " << h.path << "\n";
 }

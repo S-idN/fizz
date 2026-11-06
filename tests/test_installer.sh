@@ -9,6 +9,35 @@ UNINSTALL_SH="$REPO_ROOT/uninstall.sh"
 GNOME_HELPER="$REPO_ROOT/scripts/gnome_shortcut.py"
 
 FAILED=0
+RUN_UNIT=true
+RUN_LIFECYCLE=true
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --unit)
+            RUN_UNIT=true
+            RUN_LIFECYCLE=false
+            shift
+            ;;
+        --live|--lifecycle)
+            RUN_UNIT=false
+            RUN_LIFECYCLE=true
+            shift
+            ;;
+        --all)
+            RUN_UNIT=true
+            RUN_LIFECYCLE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--unit|--live|--all]"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 pass() {
     echo "  [PASS] $1"
@@ -205,9 +234,11 @@ test_deps_missing_non_interactive_exit() {
     assert_contains "Missing build dependencies" "$out" "Non-interactive run prints missing dependencies notice"
 }
 
-test_deps_package_commands
-test_deps_missing_detection
-test_deps_missing_non_interactive_exit
+if [ "$RUN_UNIT" = true ]; then
+    test_deps_package_commands
+    test_deps_missing_detection
+    test_deps_missing_non_interactive_exit
+fi
 
 # -----------------------------------------------------------------------------
 # Seam 2: GNOME Shortcut Registration Tests
@@ -309,8 +340,10 @@ EOF
     rm -rf "$tmp_dir"
 }
 
-test_gnome_helper_gvariant_parsing
-test_gnome_helper_mock_gsettings
+if [ "$RUN_UNIT" = true ]; then
+    test_gnome_helper_gvariant_parsing
+    test_gnome_helper_mock_gsettings
+fi
 
 # -----------------------------------------------------------------------------
 # Seam 3: Window Manager Sentinel Tests
@@ -385,8 +418,10 @@ test_desktop_detection_priority() {
     assert_eq "gnome_called" "$out" "GNOME desktop is prioritized when XDG_CURRENT_DESKTOP contains GNOME"
 }
 
-test_wm_sentinel_injection_and_removal
-test_desktop_detection_priority
+if [ "$RUN_UNIT" = true ]; then
+    test_wm_sentinel_injection_and_removal
+    test_desktop_detection_priority
+fi
 
 # -----------------------------------------------------------------------------
 # Seam 4: Lifecycle & Sandbox Tests (Install, Update, Uninstall, Purge)
@@ -500,8 +535,10 @@ EOF
     rm -rf "$sandbox"
 }
 
-test_sandbox_lifecycle
-test_sandbox_autostart_fallback
+if [ "$RUN_LIFECYCLE" = true ]; then
+    test_sandbox_lifecycle
+    test_sandbox_autostart_fallback
+fi
 
 # -----------------------------------------------------------------------------
 # Seam 5: uninstall.sh --no-hotkey flag
@@ -590,8 +627,10 @@ SEOF
     rm -rf "$tmp_dir"
 }
 
-test_uninstall_no_hotkey_skips_hotkey_removal
-test_uninstall_default_removes_hotkey
+if [ "$RUN_UNIT" = true ]; then
+    test_uninstall_no_hotkey_skips_hotkey_removal
+    test_uninstall_default_removes_hotkey
+fi
 
 if [ "$FAILED" -ne 0 ]; then
     echo "Tests failed with $FAILED failure(s)."

@@ -31,39 +31,33 @@ bool isDesktopEntry(std::string_view path) {
     return true;
 }
 
-bool isDesktopEntryTrusted(std::string_view path) {
-    // Static trusted directory prefixes per FreeDesktop spec
-    static const std::string kStaticRoots[] = {
-        "/usr/share/applications/",
-        "/usr/local/share/applications/",
-        "/var/lib/flatpak/exports/share/applications/",
-    };
+const std::vector<std::string>& getTrustedApplicationDirectories() {
+    static const std::vector<std::string> dirs = []() {
+        std::vector<std::string> result = {
+            "/usr/share/applications/",
+            "/usr/local/share/applications/",
+            "/var/lib/flatpak/exports/share/applications/",
+        };
+        const char* home = std::getenv("HOME");
+        if (home && home[0] != '\0') {
+            std::string homeStr(home);
+            if (homeStr.back() != '/') homeStr.push_back('/');
+            result.push_back(homeStr + ".local/share/applications/");
+            result.push_back(homeStr + ".local/share/flatpak/exports/share/applications/");
+        }
+        return result;
+    }();
+    return dirs;
+}
 
-    for (const auto& root : kStaticRoots) {
+bool isDesktopEntryTrusted(std::string_view path) {
+    const auto& trustedDirs = getTrustedApplicationDirectories();
+    for (const auto& root : trustedDirs) {
         if (path.size() > root.size() &&
             path.substr(0, root.size()) == std::string_view(root)) {
             return true;
         }
     }
-
-    // $HOME-relative trusted paths
-    const char* home = std::getenv("HOME");
-    if (home && home[0] != '\0') {
-        std::string homeStr(home);
-        if (homeStr.back() != '/') homeStr.push_back('/');
-
-        const std::string homeRoots[] = {
-            homeStr + ".local/share/applications/",
-            homeStr + ".local/share/flatpak/exports/share/applications/",
-        };
-        for (const auto& root : homeRoots) {
-            if (path.size() > root.size() &&
-                path.substr(0, root.size()) == std::string_view(root)) {
-                return true;
-            }
-        }
-    }
-
     return false;
 }
 
@@ -272,6 +266,43 @@ std::vector<std::string> buildLaunchCommand(
     return {"xdg-open", "--", std::string(path)};
 }
 
+static void sanitizeChildProcessEnvironment() {
+    setsid();
+
+    // Reset SIGCHLD to default disposition before exec
+    signal(SIGCHLD, SIG_DFL);
+
+    // Close all inherited file descriptors beyond stdin/stdout/stderr (0, 1, 2)
+    // Use /proc/self/fd for efficiency; fall back to iterating up to open max
+    DIR* fdDir = opendir("/proc/self/fd");
+    if (fdDir) {
+        int dirFd = dirfd(fdDir);
+        struct dirent* entry;
+        while ((entry = readdir(fdDir)) != nullptr) {
+            if (entry->d_name[0] == '.') continue;
+            int fd = std::atoi(entry->d_name);
+            if (fd > 2 && fd != dirFd) {
+                close(fd);
+            }
+        }
+        closedir(fdDir);
+    } else {
+        int maxFd = static_cast<int>(sysconf(_SC_OPEN_MAX));
+        if (maxFd < 0) maxFd = 1024;
+        for (int fd = 3; fd < maxFd; ++fd) {
+            close(fd);
+        }
+    }
+
+    int devNullFd = open("/dev/null", O_RDWR);
+    if (devNullFd >= 0) {
+        dup2(devNullFd, 0);
+        dup2(devNullFd, 1);
+        dup2(devNullFd, 2);
+        close(devNullFd);
+    }
+}
+
 bool launchTarget(std::string_view path, ExecState state, bool showFolder) {
     std::vector<std::string> cmd = buildLaunchCommand(path, state, showFolder, DesktopLauncherBackend::Auto);
     if (cmd.empty()) {
@@ -284,44 +315,7 @@ bool launchTarget(std::string_view path, ExecState state, bool showFolder) {
     }
 
     if (pid == 0) {
-        setsid();
-
-        // Reset SIGCHLD to default disposition before exec
-        signal(SIGCHLD, SIG_DFL);
-
-        // Close all inherited file descriptors beyond stdin/stdout/stderr
-        // Use /proc/self/fd for efficiency; fall back to iterating up to open max
-        {
-            int maxFd = -1;
-            DIR* fdDir = opendir("/proc/self/fd");
-            if (fdDir) {
-                int dirFd = dirfd(fdDir);
-                struct dirent* entry;
-                while ((entry = readdir(fdDir)) != nullptr) {
-                    if (entry->d_name[0] == '.') continue;
-                    int fd = std::atoi(entry->d_name);
-                    if (fd > 2 && fd != dirFd) {
-                        close(fd);
-                    }
-                }
-                closedir(fdDir);
-            } else {
-                // Fallback: iterate up to sysconf limit
-                maxFd = static_cast<int>(sysconf(_SC_OPEN_MAX));
-                if (maxFd < 0) maxFd = 1024;
-                for (int fd = 3; fd < maxFd; ++fd) {
-                    close(fd);
-                }
-            }
-        }
-
-        int devNullFd = open("/dev/null", O_RDWR);
-        if (devNullFd >= 0) {
-            dup2(devNullFd, 0);
-            dup2(devNullFd, 1);
-            dup2(devNullFd, 2);
-            close(devNullFd);
-        }
+        sanitizeChildProcessEnvironment();
 
         std::vector<char*> argv;
         argv.reserve(cmd.size() + 1);
