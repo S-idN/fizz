@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <unistd.h>
 #include <fcntl.h>
+#include <csignal>
+#include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -27,6 +29,42 @@ bool isDesktopEntry(std::string_view path) {
         return false;
     }
     return true;
+}
+
+bool isDesktopEntryTrusted(std::string_view path) {
+    // Static trusted directory prefixes per FreeDesktop spec
+    static const std::string kStaticRoots[] = {
+        "/usr/share/applications/",
+        "/usr/local/share/applications/",
+        "/var/lib/flatpak/exports/share/applications/",
+    };
+
+    for (const auto& root : kStaticRoots) {
+        if (path.size() > root.size() &&
+            path.substr(0, root.size()) == std::string_view(root)) {
+            return true;
+        }
+    }
+
+    // $HOME-relative trusted paths
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        std::string homeStr(home);
+        if (homeStr.back() != '/') homeStr.push_back('/');
+
+        const std::string homeRoots[] = {
+            homeStr + ".local/share/applications/",
+            homeStr + ".local/share/flatpak/exports/share/applications/",
+        };
+        for (const auto& root : homeRoots) {
+            if (path.size() > root.size() &&
+                path.substr(0, root.size()) == std::string_view(root)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 static std::vector<std::string> tokenizeExecLine(const std::string& line) {
@@ -191,7 +229,7 @@ std::vector<std::string> buildLaunchCommand(
         } else {
             targetDir = std::string(path.substr(0, slash));
         }
-        return {"xdg-open", std::move(targetDir)};
+        return {"xdg-open", "--", std::move(targetDir)};
     }
 
     if (isDesktopEntry(path)) {
@@ -207,7 +245,7 @@ std::vector<std::string> buildLaunchCommand(
         }
 
         if (resolvedBackend == DesktopLauncherBackend::Gio) {
-            return {"gio", "launch", std::string(path)};
+            return {"gio", "launch", "--", std::string(path)};
         }
 
         if (resolvedBackend == DesktopLauncherBackend::GtkLaunch) {
@@ -215,7 +253,7 @@ std::vector<std::string> buildLaunchCommand(
             std::string desktopEntryId = (slash == std::string_view::npos)
                                              ? std::string(path)
                                              : std::string(path.substr(slash + 1));
-            return {"gtk-launch", std::move(desktopEntryId)};
+            return {"gtk-launch", "--", std::move(desktopEntryId)};
         }
 
         if (resolvedBackend == DesktopLauncherBackend::ExecLine) {
@@ -223,7 +261,7 @@ std::vector<std::string> buildLaunchCommand(
             if (!parsed.empty()) {
                 return parsed;
             }
-            return {"xdg-open", std::string(path)};
+            return {"xdg-open", "--", std::string(path)};
         }
     }
 
@@ -231,7 +269,7 @@ std::vector<std::string> buildLaunchCommand(
         return {std::string(path)};
     }
 
-    return {"xdg-open", std::string(path)};
+    return {"xdg-open", "--", std::string(path)};
 }
 
 bool launchTarget(std::string_view path, ExecState state, bool showFolder) {
@@ -247,6 +285,36 @@ bool launchTarget(std::string_view path, ExecState state, bool showFolder) {
 
     if (pid == 0) {
         setsid();
+
+        // Reset SIGCHLD to default disposition before exec
+        signal(SIGCHLD, SIG_DFL);
+
+        // Close all inherited file descriptors beyond stdin/stdout/stderr
+        // Use /proc/self/fd for efficiency; fall back to iterating up to open max
+        {
+            int maxFd = -1;
+            DIR* fdDir = opendir("/proc/self/fd");
+            if (fdDir) {
+                int dirFd = dirfd(fdDir);
+                struct dirent* entry;
+                while ((entry = readdir(fdDir)) != nullptr) {
+                    if (entry->d_name[0] == '.') continue;
+                    int fd = std::atoi(entry->d_name);
+                    if (fd > 2 && fd != dirFd) {
+                        close(fd);
+                    }
+                }
+                closedir(fdDir);
+            } else {
+                // Fallback: iterate up to sysconf limit
+                maxFd = static_cast<int>(sysconf(_SC_OPEN_MAX));
+                if (maxFd < 0) maxFd = 1024;
+                for (int fd = 3; fd < maxFd; ++fd) {
+                    close(fd);
+                }
+            }
+        }
+
         int devNullFd = open("/dev/null", O_RDWR);
         if (devNullFd >= 0) {
             dup2(devNullFd, 0);

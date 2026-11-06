@@ -72,12 +72,13 @@ void test_parse_desktop_exec() {
 void test_build_launch_command() {
     std::cout << "[TEST] Running test_build_launch_command...\n";
 
-    // 1. Regular non-executable file -> xdg-open <file>
+    // 1. Regular non-executable file -> xdg-open -- <file>
     {
         auto cmd = buildLaunchCommand("/home/user/document.pdf", ExecState::NotExecutable, false);
-        LAUNCHER_TEST_ASSERT(cmd.size() == 2);
+        LAUNCHER_TEST_ASSERT(cmd.size() == 3);
         LAUNCHER_TEST_ASSERT(cmd[0] == "xdg-open");
-        LAUNCHER_TEST_ASSERT(cmd[1] == "/home/user/document.pdf");
+        LAUNCHER_TEST_ASSERT(cmd[1] == "--");
+        LAUNCHER_TEST_ASSERT(cmd[2] == "/home/user/document.pdf");
     }
 
     // 2. Direct executable binary -> binary itself
@@ -87,21 +88,23 @@ void test_build_launch_command() {
         LAUNCHER_TEST_ASSERT(cmd[0] == "/usr/bin/htop");
     }
 
-    // 3. showFolder flag -> xdg-open <parent-dir>
+    // 3. showFolder flag -> xdg-open -- <parent-dir>
     {
         auto cmd = buildLaunchCommand("/home/user/documents/report.txt", ExecState::NotExecutable, true);
-        LAUNCHER_TEST_ASSERT(cmd.size() == 2);
+        LAUNCHER_TEST_ASSERT(cmd.size() == 3);
         LAUNCHER_TEST_ASSERT(cmd[0] == "xdg-open");
-        LAUNCHER_TEST_ASSERT(cmd[1] == "/home/user/documents");
+        LAUNCHER_TEST_ASSERT(cmd[1] == "--");
+        LAUNCHER_TEST_ASSERT(cmd[2] == "/home/user/documents");
     }
     {
         auto cmd = buildLaunchCommand("/usr/share/applications/editor.desktop", ExecState::NotExecutable, true);
-        LAUNCHER_TEST_ASSERT(cmd.size() == 2);
+        LAUNCHER_TEST_ASSERT(cmd.size() == 3);
         LAUNCHER_TEST_ASSERT(cmd[0] == "xdg-open");
-        LAUNCHER_TEST_ASSERT(cmd[1] == "/usr/share/applications");
+        LAUNCHER_TEST_ASSERT(cmd[1] == "--");
+        LAUNCHER_TEST_ASSERT(cmd[2] == "/usr/share/applications");
     }
 
-    // 4. Desktop Entry with explicit Gio backend -> gio launch <file>
+    // 4. Desktop Entry with explicit Gio backend -> gio launch -- <file>
     {
         auto cmd = buildLaunchCommand(
             "/usr/share/applications/firefox.desktop",
@@ -109,13 +112,14 @@ void test_build_launch_command() {
             false,
             DesktopLauncherBackend::Gio
         );
-        LAUNCHER_TEST_ASSERT(cmd.size() == 3);
+        LAUNCHER_TEST_ASSERT(cmd.size() == 4);
         LAUNCHER_TEST_ASSERT(cmd[0] == "gio");
         LAUNCHER_TEST_ASSERT(cmd[1] == "launch");
-        LAUNCHER_TEST_ASSERT(cmd[2] == "/usr/share/applications/firefox.desktop");
+        LAUNCHER_TEST_ASSERT(cmd[2] == "--");
+        LAUNCHER_TEST_ASSERT(cmd[3] == "/usr/share/applications/firefox.desktop");
     }
 
-    // 5. Desktop Entry with explicit GtkLaunch backend -> gtk-launch <desktop-name>
+    // 5. Desktop Entry with explicit GtkLaunch backend -> gtk-launch -- <desktop-name>
     {
         auto cmd = buildLaunchCommand(
             "/usr/share/applications/firefox.desktop",
@@ -123,9 +127,10 @@ void test_build_launch_command() {
             false,
             DesktopLauncherBackend::GtkLaunch
         );
-        LAUNCHER_TEST_ASSERT(cmd.size() == 2);
+        LAUNCHER_TEST_ASSERT(cmd.size() == 3);
         LAUNCHER_TEST_ASSERT(cmd[0] == "gtk-launch");
-        LAUNCHER_TEST_ASSERT(cmd[1] == "firefox.desktop");
+        LAUNCHER_TEST_ASSERT(cmd[1] == "--");
+        LAUNCHER_TEST_ASSERT(cmd[2] == "firefox.desktop");
     }
 
     // 6. Desktop Entry with ExecLine fallback backend -> parsed Exec= tokens
@@ -192,8 +197,36 @@ void test_build_launch_command() {
     std::cout << "[PASS] test_build_launch_command passed.\n";
 }
 
+void test_is_desktop_entry_trusted() {
+    std::cout << "[TEST] Running test_is_desktop_entry_trusted...\n";
+
+    // Standard FreeDesktop application directories -> trusted
+    LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted("/usr/share/applications/firefox.desktop"));
+    LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted("/usr/local/share/applications/myapp.desktop"));
+    LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted("/var/lib/flatpak/exports/share/applications/com.app.desktop"));
+
+    // Paths under $HOME/.local/share/applications -> trusted
+    const char* home = std::getenv("HOME");
+    if (home) {
+        std::string trustedPath = std::string(home) + "/.local/share/applications/editor.desktop";
+        LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted(trustedPath));
+
+        std::string flatpakPath = std::string(home) + "/.local/share/flatpak/exports/share/applications/com.app.desktop";
+        LAUNCHER_TEST_ASSERT(isDesktopEntryTrusted(flatpakPath));
+    }
+
+    // Non-standard paths -> untrusted
+    LAUNCHER_TEST_ASSERT(!isDesktopEntryTrusted("/tmp/evil.desktop"));
+    LAUNCHER_TEST_ASSERT(!isDesktopEntryTrusted("/home/user/Desktop/myapp.desktop"));
+    LAUNCHER_TEST_ASSERT(!isDesktopEntryTrusted("/opt/vendor/apps/app.desktop"));
+    LAUNCHER_TEST_ASSERT(!isDesktopEntryTrusted("/usr/share/applications.desktop"));  // not inside the dir
+
+    std::cout << "[PASS] test_is_desktop_entry_trusted passed.\n";
+}
+
 void run_app_launcher_tests() {
     test_is_desktop_entry();
     test_parse_desktop_exec();
     test_build_launch_command();
+    test_is_desktop_entry_trusted();
 }
