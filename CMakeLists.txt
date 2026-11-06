@@ -21,13 +21,18 @@ set(SERVICES_SOURCES
     services/FontDiscovery.cpp
     services/LoadFile.cpp
     services/QueryOps.cpp
+    services/Theme.cpp
 )
 
-set(IMGUI_SOURCES
+set(IMGUI_CORE_SOURCES
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
     imgui/imgui_tables.cpp
     imgui/imgui_widgets.cpp
+)
+
+set(IMGUI_SOURCES
+    ${IMGUI_CORE_SOURCES}
     imgui/imgui_impl_glfw.cpp
     imgui/imgui_impl_opengl3.cpp
 )
@@ -73,6 +78,7 @@ add_executable(fizz_tests
     tests/test_app_launcher.cpp
     tests/test_focus_tracker.cpp
     tests/test_font_discovery.cpp
+    tests/test_theme.cpp
     services/Config.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
@@ -80,11 +86,14 @@ add_executable(fizz_tests
     services/LoadFile.cpp
     services/AppLauncher.cpp
     services/QueryOps.cpp
+    services/Theme.cpp
+    ${IMGUI_CORE_SOURCES}
 )
 
 target_include_directories(fizz_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
 )
 
 target_link_libraries(fizz_tests PRIVATE Threads::Threads)

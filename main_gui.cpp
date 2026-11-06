@@ -22,36 +22,27 @@
 #include "services/Config.h"
 #include "services/FocusTracker.h"
 #include "services/FontDiscovery.h"
+#include "services/Theme.h"
 
 struct Tag { const char* label; ImVec4 color; };
-
-static const ImVec4 kAccent = {0.20f,  0.83f,  0.75f,  1.00f};
 
 static Tag classify(std::string_view path, ExecState state) {
     std::string_view cat = classifyPath(path, state);
     if (cat.empty()) return {nullptr, {}};
 
-    static const ImVec4 kOrange = {0.95f, 0.65f, 0.25f, 1.f};
-    static const ImVec4 kBlue   = {0.45f, 0.65f, 0.95f, 1.f};
-    static const ImVec4 kPurple = {0.70f, 0.55f, 0.95f, 1.f};
-    static const ImVec4 kPink   = {0.95f, 0.50f, 0.65f, 1.f};
-    static const ImVec4 kGreen  = {0.55f, 0.85f, 0.45f, 1.f};
-    static const ImVec4 kGrey   = {0.60f, 0.65f, 0.67f, 1.f};
-    static const ImVec4 kAmber  = {0.95f, 0.70f, 0.10f, 1.f};
-
     if (cat == "app") {
         if (!isDesktopEntryTrusted(path)) {
-            return {"untrusted-app", kAmber};
+            return {"untrusted-app", fizz::theme::Palette::kAmber};
         }
-        return {"app",     kAccent};
+        return {"app",     fizz::theme::Palette::kAccent};
     }
-    if (cat == "exec")    return {"exec",    kOrange};
-    if (cat == "text")    return {"text",    kBlue};
-    if (cat == "code")    return {"code",    kPurple};
-    if (cat == "image")   return {"image",   kPink};
-    if (cat == "media")   return {"media",   kGreen};
-    if (cat == "doc")     return {"doc",     kBlue};
-    if (cat == "archive") return {"archive", kGrey};
+    if (cat == "exec")    return {"exec",    fizz::theme::Palette::kTagOrange};
+    if (cat == "text")    return {"text",    fizz::theme::Palette::kTagBlue};
+    if (cat == "code")    return {"code",    fizz::theme::Palette::kTagPurple};
+    if (cat == "image")   return {"image",   fizz::theme::Palette::kTagPink};
+    if (cat == "media")   return {"media",   fizz::theme::Palette::kTagGreen};
+    if (cat == "doc")     return {"doc",     fizz::theme::Palette::kTagBlue};
+    if (cat == "archive") return {"archive", fizz::theme::Palette::kTagGrey};
 
     return {nullptr, {}};
 }
@@ -59,39 +50,8 @@ static Tag classify(std::string_view path, ExecState state) {
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
 constexpr int   kMaxHits = 50;
-constexpr float kRowH    = 24.f;
+constexpr float kRowH    = fizz::theme::Metrics::kRowHeight;
 constexpr float kFontPx  = kBaseFontSize;
-
-static const ImVec4 kBg     = {0.055f, 0.070f, 0.078f, 0.95f};
-static const ImVec4 kBorder = {0.16f,  0.22f,  0.24f,  1.00f};
-static const ImVec4 kText   = {0.86f,  0.90f,  0.90f,  1.00f};
-static const ImVec4 kDim    = {0.45f,  0.52f,  0.54f,  1.00f};
-
-static ImVec4 withAlpha(ImVec4 c, float a) { c.w = a; return c; }
-
-static void applyTheme() {
-    ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowRounding = s.FrameRounding = s.ChildRounding = 0.f;
-    s.WindowBorderSize = 1.f;
-    s.FrameBorderSize  = 0.f;
-    s.WindowPadding    = {14, 12};
-    s.FramePadding     = {4, 6};
-    s.ItemSpacing      = {0, 2};
-
-    ImVec4* c = s.Colors;
-    c[ImGuiCol_WindowBg]       = kBg;
-    c[ImGuiCol_ChildBg]        = {0, 0, 0, 0};
-    c[ImGuiCol_Border]         = kBorder;
-    c[ImGuiCol_Text]           = kText;
-    c[ImGuiCol_TextDisabled]   = kDim;
-    c[ImGuiCol_FrameBg]        = {0, 0, 0, 0};
-    c[ImGuiCol_FrameBgHovered] = {0, 0, 0, 0};
-    c[ImGuiCol_FrameBgActive]  = {0, 0, 0, 0};
-    c[ImGuiCol_Separator]      = kBorder;
-    c[ImGuiCol_Header]         = withAlpha(kAccent, 0.14f);   
-    c[ImGuiCol_HeaderHovered]  = withAlpha(kAccent, 0.08f);
-    c[ImGuiCol_HeaderActive]   = withAlpha(kAccent, 0.20f);
-}
 
 static void glfwError(int code, const char* msg) {
     fprintf(stderr, "GLFW error %d: %s\n", code, msg);
@@ -113,7 +73,7 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
 
     ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-    ImVec2 pos = {min.x + 10, min.y + (kRowH - ImGui::GetFontSize()) * 0.5f};
+    ImVec2 pos = {min.x + fizz::theme::Metrics::kRowTextIndent, min.y + (kRowH - ImGui::GetFontSize()) * 0.5f};
     float nameW = ImGui::CalcTextSize(name.data(), name.data() + name.size()).x;
 
     Tag tag = classify(path, state);
@@ -122,18 +82,21 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     const float textRight = tag.label ? max.x - rightPad - badgeW - 8 : max.x;
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    if (selected) dl->AddRectFilled(min, {min.x + 2, max.y}, ImGui::GetColorU32(kAccent));
+    if (selected) {
+        auto geom = fizz::theme::calculateIndicatorGeometry(min, max);
+        dl->AddRectFilled(geom.min, geom.max, ImGui::GetColorU32(fizz::theme::Palette::kAccent), geom.rounding);
+    }
 
     dl->PushClipRect(min, {textRight, max.y}, true);   
-    dl->AddText(pos, ImGui::GetColorU32(kText), name.data(), name.data() + name.size());
-    dl->AddText({pos.x + nameW + 16, pos.y}, ImGui::GetColorU32(kDim), dir.data(), dir.data() + dir.size());
+    dl->AddText(pos, ImGui::GetColorU32(fizz::theme::Palette::kText), name.data(), name.data() + name.size());
+    dl->AddText({pos.x + nameW + 16, pos.y}, ImGui::GetColorU32(fizz::theme::Palette::kDim), dir.data(), dir.data() + dir.size());
     dl->PopClipRect();
 
     if (tag.label) {
         ImVec2 bmin = {max.x - rightPad - badgeW, min.y + 3};
         ImVec2 bmax = {max.x - rightPad,          max.y - 3};
         float tw = ImGui::CalcTextSize(tag.label).x;
-        dl->AddRect(bmin, bmax, ImGui::GetColorU32(withAlpha(tag.color, 0.45f)));
+        dl->AddRect(bmin, bmax, ImGui::GetColorU32(fizz::theme::withAlpha(tag.color, 0.45f)));
         dl->AddText({bmin.x + (badgeW - tw) * 0.5f, pos.y}, ImGui::GetColorU32(tag.color), tag.label);
     }
     return clicked;
@@ -176,7 +139,7 @@ int main() {
         io.Fonts->AddFontDefault();
     }
     ImGui::StyleColorsDark();
-    applyTheme();
+    fizz::theme::applyTheme(ImGui::GetStyle());
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(nullptr);
 
@@ -201,7 +164,7 @@ int main() {
 
         // prompt line: "> query"
         ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(kAccent, ">");
+        ImGui::TextColored(fizz::theme::Palette::kAccent, ">");
         ImGui::SameLine(0, 8);
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::SetKeyboardFocusHere();         
@@ -233,7 +196,7 @@ int main() {
 
         ImGui::Separator();
 
-	ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()});
+	ImGui::BeginChild("results", {0, -ImGui::GetFrameHeightWithSpacing()}, ImGuiChildFlags_Borders);
 	for (int i = 0; i < n; ++i) {
 	    ImGui::PushID(i);
 	    if (drawRow(results[i].path, results[i].execState, i == selected)) {
@@ -253,8 +216,7 @@ int main() {
 	if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
 	ImGui::EndChild();
 	if (!warningMsg.empty()) {
-	    static const ImVec4 kAmber = {0.95f, 0.70f, 0.10f, 1.f};
-	    ImGui::TextColored(kAmber, "%s", warningMsg.c_str());
+	    ImGui::TextColored(fizz::theme::Palette::kAmber, "%s", warningMsg.c_str());
 	} else {
 	    ImGui::TextDisabled("%d hits   enter open   shift+enter open folder   esc quit", n);
 	}
