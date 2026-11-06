@@ -25,29 +25,6 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 
-struct Tag { const char* label; ImVec4 color; };
-
-static Tag classify(std::string_view path, ExecState state) {
-    std::string_view cat = classifyPath(path, state);
-    if (cat.empty()) return {nullptr, {}};
-
-    if (cat == "app") {
-        if (!isDesktopEntryTrusted(path)) {
-            return {"untrusted-app", fizz::theme::Palette::kAmber};
-        }
-        return {"app",     fizz::theme::Palette::kAccent};
-    }
-    if (cat == "exec")    return {"exec",    fizz::theme::Palette::kTagOrange};
-    if (cat == "text")    return {"text",    fizz::theme::Palette::kTagBlue};
-    if (cat == "code")    return {"code",    fizz::theme::Palette::kTagPurple};
-    if (cat == "image")   return {"image",   fizz::theme::Palette::kTagPink};
-    if (cat == "media")   return {"media",   fizz::theme::Palette::kTagGreen};
-    if (cat == "doc")     return {"doc",     fizz::theme::Palette::kTagBlue};
-    if (cat == "archive") return {"archive", fizz::theme::Palette::kTagGrey};
-
-    return {nullptr, {}};
-}
-
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
 constexpr int   kMaxHits = 50;
@@ -70,17 +47,22 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
                        ImGuiSelectableFlags_AllowDoubleClick, {0, kRowH});
 
     size_t slash = path.rfind('/');
-    std::string_view dir  = slash == std::string_view::npos ? "" : path.substr(0, slash);
-    std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
+    std::string_view dir;
+    std::string_view name;
+    if (slash == std::string_view::npos) {
+        dir = "";
+        name = path;
+    } else if (slash == 0) {
+        dir = "/";
+        name = path.substr(1);
+    } else {
+        dir = path.substr(0, slash);
+        name = path.substr(slash + 1);
+    }
 
     ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-    ImVec2 pos = {min.x + fizz::theme::Metrics::kRowTextIndent, min.y + (kRowH - ImGui::GetFontSize()) * 0.5f};
-    float nameW = ImGui::CalcTextSize(name.data(), name.data() + name.size()).x;
-
-    Tag tag = classify(path, state);
-    float badgeW = tag.label ? ImGui::CalcTextSize(tag.label).x + 12.f : 0.f;
-    const float rightPad = 10.f;
-    const float textRight = tag.label ? max.x - rightPad - badgeW - 8 : max.x;
+    fizz::ui::CategoryBadge badge = fizz::ui::getCategoryBadge(path, state);
+    auto layout = fizz::ui::calculateRowLayout(min, max, name, dir, badge, ImGui::GetFontSize());
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     if (selected) {
@@ -88,18 +70,7 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
         dl->AddRectFilled(geom.min, geom.max, ImGui::GetColorU32(fizz::theme::Palette::kAccent), geom.rounding);
     }
 
-    dl->PushClipRect(min, {textRight, max.y}, true);   
-    dl->AddText(pos, ImGui::GetColorU32(fizz::theme::Palette::kText), name.data(), name.data() + name.size());
-    dl->AddText({pos.x + nameW + 16, pos.y}, ImGui::GetColorU32(fizz::theme::Palette::kDim), dir.data(), dir.data() + dir.size());
-    dl->PopClipRect();
-
-    if (tag.label) {
-        ImVec2 bmin = {max.x - rightPad - badgeW, min.y + 3};
-        ImVec2 bmax = {max.x - rightPad,          max.y - 3};
-        float tw = ImGui::CalcTextSize(tag.label).x;
-        dl->AddRect(bmin, bmax, ImGui::GetColorU32(fizz::theme::withAlpha(tag.color, 0.45f)));
-        dl->AddText({bmin.x + (badgeW - tw) * 0.5f, pos.y}, ImGui::GetColorU32(tag.color), tag.label);
-    }
+    fizz::ui::renderRowContent(dl, layout, name, badge);
     return clicked;
 }
 

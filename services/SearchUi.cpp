@@ -1,5 +1,6 @@
 #include "SearchUi.h"
 #include "Theme.h"
+#include "AppLauncher.h"
 #include <algorithm>
 
 namespace fizz::ui {
@@ -66,6 +67,111 @@ FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing) {
         reserved,
         -reserved
     };
+}
+
+BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax, float textWidth, float fontSize) {
+    float badgeW = textWidth + 2.0f * Metrics::kBadgePaddingX;
+    float badgeMinX = rowMax.x - Metrics::kBadgeMarginRight - badgeW;
+    float badgeMaxX = rowMax.x - Metrics::kBadgeMarginRight;
+    float badgeMinY = rowMin.y + Metrics::kBadgeMarginY;
+    float badgeMaxY = rowMax.y - Metrics::kBadgeMarginY;
+    float badgeH = std::max(0.0f, badgeMaxY - badgeMinY);
+    float rounding = badgeH * 0.5f;
+
+    float textX = badgeMinX + Metrics::kBadgePaddingX;
+    float textY = badgeMinY + (badgeH - fontSize) * 0.5f;
+
+    return BadgeGeometry{
+        ImVec2(badgeMinX, badgeMinY),
+        ImVec2(badgeMaxX, badgeMaxY),
+        ImVec2(textX, textY),
+        badgeW,
+        badgeH,
+        rounding
+    };
+}
+
+CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
+    std::string_view cat = classifyPath(path, state);
+    if (cat.empty()) {
+        return {"", ImVec4(0, 0, 0, 0)};
+    }
+
+    if (cat == "app") {
+        if (!isDesktopEntryTrusted(path)) {
+            return {"untrusted-app", theme::Palette::kAmber};
+        }
+        return {"app", theme::Palette::kAccent};
+    }
+
+    struct CategoryMapping {
+        std::string_view cat;
+        std::string_view label;
+        ImVec4 color;
+    };
+
+    static constexpr CategoryMapping kTable[] = {
+        {"exec",    "exec",    theme::Palette::kTagOrange},
+        {"code",    "code",    theme::Palette::kTagPurple},
+        {"doc",     "doc",     theme::Palette::kTagTeal},
+        {"media",   "media",   theme::Palette::kTagGreen},
+        {"image",   "image",   theme::Palette::kTagPink},
+        {"archive", "archive", theme::Palette::kTagGrey},
+        {"text",    "text",    theme::Palette::kTagBlue},
+    };
+
+    for (const auto& item : kTable) {
+        if (cat == item.cat) {
+            return {item.label, item.color};
+        }
+    }
+
+    return {"", ImVec4(0, 0, 0, 0)};
+}
+
+std::string truncatePath(std::string_view path, float maxWidth) {
+    return truncatePath(path, maxWidth, [](std::string_view s) {
+        return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+    });
+}
+
+RowLayout calculateRowLayout(const ImVec2& rowMin, const ImVec2& rowMax,
+                             std::string_view fileName, std::string_view dirPath,
+                             const CategoryBadge& badge, float fontSize) {
+    return calculateRowLayout(rowMin, rowMax, fileName, dirPath, badge, [](std::string_view s) {
+        return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+    }, fontSize);
+}
+
+void renderCategoryBadge(ImDrawList* dl, const CategoryBadge& badge, const BadgeGeometry& geom) {
+    if (!dl || badge.label.empty() || geom.width <= 0.0f || geom.height <= 0.0f) {
+        return;
+    }
+
+    // Translucent filled background pill
+    dl->AddRectFilled(geom.min, geom.max, ImGui::GetColorU32(theme::withAlpha(badge.color, 0.16f)), geom.rounding);
+
+    // Subtle crisp border outline
+    dl->AddRect(geom.min, geom.max, ImGui::GetColorU32(theme::withAlpha(badge.color, 0.45f)), geom.rounding);
+
+    // Centered category text
+    dl->AddText(geom.textPos, ImGui::GetColorU32(badge.color), badge.label.data(), badge.label.data() + badge.label.size());
+}
+
+void renderRowContent(ImDrawList* dl, const RowLayout& layout, std::string_view name, const CategoryBadge& badge) {
+    if (!dl) return;
+
+    dl->PushClipRect(layout.min, {layout.textRightLimit, layout.max.y}, true);
+    dl->AddText(layout.namePos, ImGui::GetColorU32(theme::Palette::kText), name.data(), name.data() + name.size());
+    if (!layout.truncatedDir.empty()) {
+        dl->AddText(layout.dirPos, ImGui::GetColorU32(theme::Palette::kDim),
+                    layout.truncatedDir.data(), layout.truncatedDir.data() + layout.truncatedDir.size());
+    }
+    dl->PopClipRect();
+
+    if (layout.hasBadge) {
+        renderCategoryBadge(dl, badge, layout.badgeGeom);
+    }
 }
 
 bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder, bool autoFocus) {

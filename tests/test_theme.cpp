@@ -101,6 +101,9 @@ void test_theme_adwaita_palette_colors() {
     // Separators use subtle border highlight
     THEME_TEST_ASSERT(vec4NearEqual(c[ImGuiCol_Separator], fizz::theme::Palette::kBorder));
 
+    // Category badge colors
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Palette::kTagTeal, {0.200f, 0.780f, 0.720f, 1.00f}));
+
     std::cout << "[PASS] test_theme_adwaita_palette_colors passed.\n";
 }
 
