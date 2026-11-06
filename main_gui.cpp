@@ -190,8 +190,8 @@ int main() {
             }
         }
 
-        float footerReserve = fizz::ui::Metrics::kFooterHeight + ImGui::GetStyle().ItemSpacing.y;
-        ImGui::BeginChild("results", {0, -footerReserve}, ImGuiChildFlags_Borders);
+        auto footerLayout = fizz::ui::calculateFooterLayout(fizz::ui::Metrics::kFooterHeight, ImGui::GetStyle().ItemSpacing.y);
+        ImGui::BeginChild("results", {0, footerLayout.reservedChildHeight}, ImGuiChildFlags_Borders);
         for (int i = 0; i < n; ++i) {
             ImGui::PushID(i);
             if (drawRow(results[i].path, results[i].execState, i == selected)) {

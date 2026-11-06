@@ -41,14 +41,13 @@ void test_status_footer_formatting_and_shortcuts() {
     UI_TEST_ASSERT(shortcuts[2].action == "Quit");
 
     // Footer layout calculation
-    float contentHeight = 452.0f;
     float footerHeight = 28.0f;
     float separatorSpacing = 4.0f;
 
-    auto layout = fizz::ui::calculateFooterLayout(contentHeight, footerHeight, separatorSpacing);
+    auto layout = fizz::ui::calculateFooterLayout(footerHeight, separatorSpacing);
     UI_TEST_ASSERT(nearEqual(layout.footerHeight, 28.0f));
     UI_TEST_ASSERT(nearEqual(layout.reservedBottomSpace, footerHeight + separatorSpacing));
-    UI_TEST_ASSERT(nearEqual(layout.resultsChildHeight, -(footerHeight + separatorSpacing)));
+    UI_TEST_ASSERT(nearEqual(layout.reservedChildHeight, -(footerHeight + separatorSpacing)));
 
     std::cout << "[PASS] test_status_footer_formatting_and_shortcuts passed.\n";
 }
@@ -85,9 +84,10 @@ void test_search_pill_geometry_and_metrics() {
     // Prompt vertically centered
     UI_TEST_ASSERT(nearEqual(geom.promptPos.y, 14.0f + (38.0f - 16.0f) * 0.5f));
 
-    // Input position starts after prompt + spacing
+    // Input position starts after prompt + spacing and origin.y for full-height frame padding centering
     float expectedInputX = geom.promptPos.x + 12.0f + 8.0f;
     UI_TEST_ASSERT(nearEqual(geom.inputPos.x, expectedInputX));
+    UI_TEST_ASSERT(nearEqual(geom.inputPos.y, origin.y));
     // Input width occupies remaining width up to pillMax.x - kSearchPillPaddingX
     float expectedInputW = geom.pillMax.x - 12.0f - expectedInputX;
     UI_TEST_ASSERT(nearEqual(geom.inputWidth, expectedInputW));

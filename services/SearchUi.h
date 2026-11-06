@@ -33,15 +33,15 @@ struct SearchPillGeometry {
 
 // Navigation shortcut indicator definition
 struct ShortcutItem {
-    std::string key;
-    std::string action;
+    std::string_view key;
+    std::string_view action;
 };
 
 // Layout calculations for the pinned status footer
 struct FooterLayout {
     float footerHeight;
     float reservedBottomSpace;
-    float resultsChildHeight;
+    float reservedChildHeight; // Negative height offset for BeginChild
 };
 
 // Calculates geometry for the integrated search pill container, prompt, and input box
@@ -51,13 +51,13 @@ SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width
 std::string formatHitCount(int count);
 
 // Returns standard keyboard navigation shortcuts
-std::vector<ShortcutItem> getNavigationShortcuts();
+const std::vector<ShortcutItem>& getNavigationShortcuts();
 
 // Returns glyph ranges covering Latin, arrows (↵, ⇧), and symbols for font loading
 const ImWchar* getUiGlyphRanges();
 
-// Calculates layout dimensions for pinning the status footer cleanly below results
-FooterLayout calculateFooterLayout(float contentHeight, float footerHeight, float separatorSpacing = 4.0f);
+// Calculates layout dimensions for pinning the status footer cleanly below the search hits list
+FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing = 4.0f);
 
 // Renders the modern integrated search pill at top with prompt glyph and placeholder hint
 bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder = kDefaultPlaceholderText, bool autoFocus = true);
