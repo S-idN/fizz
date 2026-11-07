@@ -253,6 +253,7 @@ nohup.out
 main
 fizz_tests
 build/
+.worktrees/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
