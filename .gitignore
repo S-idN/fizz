@@ -1,5 +1,7 @@
 # Prerequisites
 *.d
+__pycache__/
+*.pyc
 
 # Compiled Object files
 *.slo
@@ -69,6 +71,8 @@ Testing/
 
 # Prerequisites
 *.d
+__pycache__/
+*.pyc
 
 # Object files
 *.o
@@ -247,8 +251,9 @@ tmbootpicker.efi
 nohup.out
 
 main
-tests/
+fizz_tests
 build/
+.worktrees/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -265,3 +270,9 @@ imgui.ini
 .idea/
 testMain
 cacheTest
+
+.agents/
+docs/
+skills-lock.json
+AGENTS.md
+GLOSSARY.md
