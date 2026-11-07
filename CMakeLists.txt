@@ -81,7 +81,9 @@ add_executable(fizz_tests
     tests/test_font_discovery.cpp
     tests/test_theme.cpp
     tests/test_search_ui.cpp
+    tests/test_file_cache_builder.cpp
     services/Config.cpp
+    services/FileCacheBuilder.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
     services/FontDiscovery.cpp

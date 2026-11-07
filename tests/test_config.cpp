@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <vector>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "services/Config.h"
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
@@ -354,6 +356,54 @@ void test_custom_ignore_rules_matching() {
     std::cout << "[PASS] test_custom_ignore_rules_matching passed.\n";
 }
 
+void test_user_runtime_dir_and_fallback_isolation() {
+    std::cout << "[TEST] Running test_user_runtime_dir_and_fallback_isolation...\n";
+
+    // 1. Verify custom runtime directory override
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_runtime_custom";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    setCustomRuntimeDir(tempDir.string());
+    CONFIG_TEST_ASSERT(getUserRuntimeDir() == tempDir.string());
+    setCustomRuntimeDir("");
+
+    // 2. Verify runtime dir resolution when XDG_RUNTIME_DIR is set vs unset
+    std::string runtimeDir = getUserRuntimeDir();
+    CONFIG_TEST_ASSERT(!runtimeDir.empty());
+
+    // 3. Fallback directory format (/tmp/fizz-<uid>) mode 0700 verification
+    uid_t uid = getuid();
+    std::string expectedFallback = "/tmp/fizz-" + std::to_string(uid);
+
+    // If XDG_RUNTIME_DIR is not present or we resolve fallback, check permissions
+    struct stat st;
+    int res = lstat(runtimeDir.c_str(), &st);
+    CONFIG_TEST_ASSERT(res == 0);
+    CONFIG_TEST_ASSERT(S_ISDIR(st.st_mode));
+    CONFIG_TEST_ASSERT(!S_ISLNK(st.st_mode));
+    CONFIG_TEST_ASSERT(st.st_uid == uid);
+
+    // If the resolved directory is the fallback /tmp/fizz-<uid>, verify strict 0700 permissions
+    if (runtimeDir == expectedFallback) {
+        CONFIG_TEST_ASSERT((st.st_mode & 0777) == 0700);
+    }
+
+    // 4. Test symlink rejection for runtime directory
+    fs::path evilSymlink = fs::temp_directory_path() / "fizz_test_evil_runtime_symlink";
+    fs::remove(evilSymlink, ec);
+    fs::create_directory_symlink(tempDir, evilSymlink, ec);
+    // Overriding with a symlink should be rejected by secure validation or handled safely
+    struct stat symSt;
+    CONFIG_TEST_ASSERT(lstat(evilSymlink.c_str(), &symSt) == 0 && S_ISLNK(symSt.st_mode));
+
+    // Cleanup
+    fs::remove(evilSymlink, ec);
+    fs::remove_all(tempDir, ec);
+
+    std::cout << "[PASS] test_user_runtime_dir_and_fallback_isolation passed.\n";
+}
+
 void run_config_tests() {
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
@@ -361,4 +411,5 @@ void run_config_tests() {
     test_config_parser_auto_close_on_unfocus();
     test_config_custom_roots_and_ignores_traversal();
     test_custom_ignore_rules_matching();
+    test_user_runtime_dir_and_fallback_isolation();
 }

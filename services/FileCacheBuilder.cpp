@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <iostream>
+#include "FileCacheBuilder.h"
 #include "FileSearch.h"
 #include "Config.h"
 
@@ -23,8 +25,9 @@ constexpr auto kMaxDefer = 10s;
 
 static volatile sig_atomic_t gStop = 0;
 
-static int inoFd;                                
+static int inoFd = -1;                                
 static std::unordered_map<int, std::string> dirOf;   
+static bool gOverflowOccurred = false;
 
 static std::vector<std::string> resolveSearchRoots(const std::vector<std::string>& configuredRoots) {
     std::vector<std::string> existingRoots;
@@ -40,23 +43,39 @@ static std::vector<std::string> resolveSearchRoots(const std::vector<std::string
     return existingRoots;
 }
 
-static void rebuild() {
+void rebuildCache() {
+    if (gStop) {
+        setSearchInterrupted(true);
+        return;
+    }
+    setSearchInterrupted(false);
     auto config = loadConfig();
     setCustomIgnoreRules(config.ignoreRules);
     auto roots = resolveSearchRoots(config.searchRoots);
     systemFileSearch(roots);
 }
 
-static void watch(const std::string& dir) {
-    int wd = inotify_add_watch(inoFd, dir.c_str(),
-                               IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
-    if (wd >= 0) dirOf[wd] = dir;
+int watchDir(int fd, const std::string& dir, std::unordered_map<int, std::string>& dirMap,
+             int (*addWatchFn)(int, const char*, uint32_t)) {
+    int wd = addWatchFn(fd, dir.c_str(),
+                        IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
+    if (wd >= 0) {
+        dirMap[wd] = dir;
+    } else {
+        if (errno == ENOSPC) {
+            std::cerr << "[WARNING] inotify_add_watch failed for '" << dir << "': "
+                      << "kernel watch limit reached (ENOSPC). "
+                      << "Increase limit with 'sysctl fs.inotify.max_user_watches'.\n";
+        }
+    }
+    return wd;
 }
 
-static void watchTree(const std::string& root) {
+void watchTree(int fd, const std::string& root, std::unordered_map<int, std::string>& dirMap,
+               int (*addWatchFn)(int, const char*, uint32_t)) {
     std::string rootName = fs::path(root).filename().string();
     if (isPathIgnored(root, rootName.empty() ? nullptr : rootName.c_str())) return;
-    watch(root);
+    watchDir(fd, root, dirMap, addWatchFn);
     std::error_code ec;
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
     for (; !ec && it != end; it.increment(ec)) {
@@ -65,39 +84,82 @@ static void watchTree(const std::string& root) {
             it.disable_recursion_pending();
             continue;
         }
-        watch(it->path().string());
+        watchDir(fd, it->path().string(), dirMap, addWatchFn);
     }
 }
 
-static bool readEvents() {
+static void watch(const std::string& dir) {
+    watchDir(inoFd, dir, dirOf);
+}
+
+static void watchTree(const std::string& root) {
+    watchTree(inoFd, root, dirOf);
+}
+
+bool readEvents(int fd, std::unordered_map<int, std::string>& dirMap, bool* overflowDetected) {
     alignas(inotify_event) char buf[16 * 1024];
     bool changed = false;
     ssize_t n;
-    while ((n = read(inoFd, buf, sizeof buf)) > 0) {
+    while ((n = read(fd, buf, sizeof buf)) > 0) {
         for (char* p = buf; p < buf + n; ) {
             auto* ev = reinterpret_cast<inotify_event*>(p);
             p += sizeof(inotify_event) + ev->len;
 
-            if (ev->mask & IN_IGNORED) { dirOf.erase(ev->wd); continue; }   
+            if (ev->mask & IN_Q_OVERFLOW) {
+                std::cerr << "[WARNING] inotify event queue overflowed (IN_Q_OVERFLOW); scheduling deferred full rebuild.\n";
+                if (overflowDetected) {
+                    *overflowDetected = true;
+                }
+                changed = true;
+                continue;
+            }
+
+            if (ev->mask & IN_IGNORED) {
+                dirMap.erase(ev->wd);
+                continue;
+            }
+
             if (ev->len) {
-                std::string fullPath = dirOf.count(ev->wd) ? (dirOf[ev->wd] + "/" + ev->name) : "";
+                std::string fullPath = dirMap.count(ev->wd) ? (dirMap[ev->wd] + "/" + ev->name) : "";
                 if (isPathIgnored(fullPath, ev->name)) continue;
             }
 
             changed = true;
-            if ((ev->mask & IN_ISDIR) && (ev->mask & (IN_CREATE | IN_MOVED_TO)) && dirOf.count(ev->wd))
-                watchTree(dirOf[ev->wd] + "/" + ev->name);
+            if ((ev->mask & IN_ISDIR) && (ev->mask & (IN_CREATE | IN_MOVED_TO)) && dirMap.count(ev->wd)) {
+                watchTree(fd, dirMap[ev->wd] + "/" + ev->name, dirMap);
+            }
         }
     }
     return changed;
 }
 
-static int acquireLock() {
-    const char* rt = std::getenv("XDG_RUNTIME_DIR");
-    std::string path = std::string(rt && *rt ? rt : "/tmp") + "/fizzd.lock";
-    int fd = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
-    if (fd < 0 || flock(fd, LOCK_EX | LOCK_NB) < 0) return -1;
+bool readEvents() {
+    return readEvents(inoFd, dirOf, &gOverflowOccurred);
+}
+
+int acquireDaemonLock(const std::string& customRuntimeDir) {
+    std::string rtDir = !customRuntimeDir.empty() ? customRuntimeDir : getUserRuntimeDir();
+    if (rtDir.empty()) {
+        return -1;
+    }
+    std::string path = rtDir + "/fizzd.lock";
+    int fd = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) < 0) {
+        close(fd);
+        return -1;
+    }
     return fd;
+}
+
+void releaseDaemonLock(int& fd) {
+    if (fd >= 0) {
+        flock(fd, LOCK_UN);
+        close(fd);
+        fd = -1;
+    }
 }
 
 static void runDaemon() {
@@ -112,43 +174,53 @@ static void runDaemon() {
         watchTree(root);
     }
 
-    rebuild();
-    auto lastBuild = Clock::now();
-    bool dirty = false;
-    Clock::time_point firstDirty, lastEvent;
+    rebuildCache();
+    RebuildScheduler scheduler(kQuiet, kMaxDefer, kInterval);
+    scheduler.onRebuildExecuted();
 
     pollfd pfd{inoFd, POLLIN, 0};
     while (!gStop) {
-        poll(&pfd, 1, 1000);  
+        poll(&pfd, 1, 250);  
 
         if ((pfd.revents & POLLIN) && readEvents()) {
-            lastEvent = Clock::now();
-            if (!dirty) { dirty = true; firstDirty = lastEvent; }
+            scheduler.onEvent();
         }
 
         auto now = Clock::now();
-        bool quiet   = dirty && now >= lastEvent + kQuiet;
-        bool tooLong = dirty && now >= firstDirty + kMaxDefer;
-        bool hourly  = now >= lastBuild + kInterval;
-
-        if (quiet || tooLong || hourly) {
-            rebuild();
-            lastBuild = Clock::now();
-            dirty = false;
+        if (scheduler.shouldRebuild(now)) {
+            if (gOverflowOccurred) {
+                for (const auto& root : existingRoots) {
+                    watchTree(root);
+                }
+                gOverflowOccurred = false;
+            }
+            rebuildCache();
+            scheduler.onRebuildExecuted(Clock::now());
         }
     }
     close(inoFd);
 }
 
-void daemonRunner() {
-    int lock = acquireLock();
+void stopDaemon() {
+    gStop = 1;
+}
+
+void runIndexDaemon() {
+    int lock = acquireDaemonLock();
     if (lock < 0) return;   
     runDaemon();
-    close(lock);
+    releaseDaemonLock(lock);
+}
+
+void daemonRunner() {
+    runIndexDaemon();
 }
 
 #ifdef FIZZD_MAIN
-static void onSignal(int) { gStop = 1; }
+static void onSignal(int) {
+    gStop = 1;
+    setSearchInterrupted(true);
+}
 
 int main() {
     signal(SIGTERM, onSignal);

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstring>
+#include <csignal>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -195,7 +196,11 @@ std::string getBinaryCachePath() {
     if (!home.empty()) {
         return home + "/.fizzLocalCache.bin";
     }
-    return "/tmp/.fizzLocalCache.bin";
+    std::string rt = getUserRuntimeDir();
+    if (!rt.empty()) {
+        return rt + "/.fizzLocalCache.bin";
+    }
+    return "";
 }
 
 void setBinaryCachePath(const std::string& path) {
@@ -280,9 +285,72 @@ struct DirIdHash {
     }
 };
 
+static volatile sig_atomic_t s_interrupted = 0;
+static struct sigaction s_oldSigInt{};
+static struct sigaction s_oldSigTerm{};
+static bool s_handlersInstalled = false;
+
+void setSearchInterrupted(bool interrupted) {
+    s_interrupted = interrupted ? 1 : 0;
+}
+
+bool isSearchInterrupted() {
+    return s_interrupted != 0;
+}
+
+static void searchSignalHandler(int sig) {
+    s_interrupted = 1;
+    if (sig == SIGINT && s_oldSigInt.sa_handler &&
+        s_oldSigInt.sa_handler != SIG_DFL && s_oldSigInt.sa_handler != SIG_IGN) {
+        s_oldSigInt.sa_handler(sig);
+    } else if (sig == SIGTERM && s_oldSigTerm.sa_handler &&
+               s_oldSigTerm.sa_handler != SIG_DFL && s_oldSigTerm.sa_handler != SIG_IGN) {
+        s_oldSigTerm.sa_handler(sig);
+    }
+}
+
+void setupSearchSignalHandlers() {
+    if (!s_handlersInstalled) {
+        struct sigaction sa{};
+        sa.sa_handler = searchSignalHandler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sigaction(SIGINT, &sa, &s_oldSigInt);
+        sigaction(SIGTERM, &sa, &s_oldSigTerm);
+        s_handlersInstalled = true;
+    }
+}
+
+void restoreSearchSignalHandlers() {
+    if (s_handlersInstalled) {
+        sigaction(SIGINT, &s_oldSigInt, nullptr);
+        sigaction(SIGTERM, &s_oldSigTerm, nullptr);
+        s_handlersInstalled = false;
+    }
+}
+
+struct SearchSignalScope {
+    bool installed{false};
+    SearchSignalScope() {
+        if (!s_handlersInstalled) {
+            setupSearchSignalHandlers();
+            installed = true;
+        }
+    }
+    ~SearchSignalScope() {
+        if (installed) {
+            restoreSearchSignalHandlers();
+        }
+    }
+};
+
 static void performSystemFileSearch(const std::string& currPath,
                                    std::unordered_set<std::string>& indexedPaths,
                                    std::unordered_set<DirId, DirIdHash>& visitedDirs) {
+    if (isSearchInterrupted()) {
+        return;
+    }
+
     struct stat dirStat;
     if (stat(currPath.c_str(), &dirStat) != 0 || !S_ISDIR(dirStat.st_mode)) {
         return; // Gracefully survive missing paths or permission errors (e.g. EACCES)
@@ -298,7 +366,7 @@ static void performSystemFileSearch(const std::string& currPath,
     }
 
     struct dirent* dp;
-    while ((dp = readdir(dirp)) != nullptr) {
+    while (!isSearchInterrupted() && (dp = readdir(dirp)) != nullptr) {
         if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) {
             continue;
         }
@@ -350,6 +418,9 @@ static void performSystemFileSearch(const std::string& currPath,
 
         if (dType == DT_DIR) {
             performSystemFileSearch(currFileName, indexedPaths, visitedDirs);
+            if (isSearchInterrupted()) {
+                break;
+            }
         }
     }
     closedir(dirp);
@@ -372,6 +443,8 @@ static bool writeAll(int fd, const void* data, size_t size) {
 }
 
 void systemFileSearch(const std::vector<std::string>& searchRoots) {
+    SearchSignalScope signalScope;
+
     fileStructTable.clear();
     fileTable.clear();
 
@@ -386,13 +459,20 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
     std::unordered_set<DirId, DirIdHash> visitedDirs;
 
     for (const auto& root : searchRoots) {
+        if (isSearchInterrupted()) break;
         if (root.empty()) continue;
         if (isPathIgnored(root, nullptr)) continue;
         performSystemFileSearch(root, indexedPaths, visitedDirs);
     }
 
+    if (isSearchInterrupted()) {
+        fileStructTable.clear();
+        fileTable.clear();
+        return;
+    }
+
     const std::string tmpPath = binaryCachePath + ".tmp." + std::to_string(getpid());
-    int fd = open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    int fd = open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         std::cerr << "[ERROR] Could not open temporary Binary Cache for writing: " << tmpPath << "\n";
         return;
@@ -408,22 +488,22 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
         unlink(tmpPath.c_str());
     };
 
-    if (!writeAll(fd, &structCount, sizeof(structCount))) {
+    if (isSearchInterrupted() || !writeAll(fd, &structCount, sizeof(structCount))) {
         writeFail();
         return;
     }
-    if (!writeAll(fd, &charCount, sizeof(charCount))) {
+    if (isSearchInterrupted() || !writeAll(fd, &charCount, sizeof(charCount))) {
         writeFail();
         return;
     }
     if (structCount > 0) {
-        if (!writeAll(fd, fileStructTable.data(), structCount * sizeof(fileEntity))) {
+        if (isSearchInterrupted() || !writeAll(fd, fileStructTable.data(), structCount * sizeof(fileEntity))) {
             writeFail();
             return;
         }
     }
     if (charCount > 0) {
-        if (!writeAll(fd, fileTable.data(), charCount)) {
+        if (isSearchInterrupted() || !writeAll(fd, fileTable.data(), charCount)) {
             writeFail();
             return;
         }
@@ -432,6 +512,13 @@ void systemFileSearch(const std::vector<std::string>& searchRoots) {
     if (close(fd) != 0) {
         std::cerr << "[ERROR] Could not close temporary Binary Cache: " << tmpPath << "\n";
         unlink(tmpPath.c_str());
+        return;
+    }
+
+    if (isSearchInterrupted()) {
+        unlink(tmpPath.c_str());
+        fileStructTable.clear();
+        fileTable.clear();
         return;
     }
 

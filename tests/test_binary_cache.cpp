@@ -5,10 +5,17 @@
 #include <fstream>
 #include <algorithm>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
+#include <csignal>
+#include <thread>
+#include <chrono>
+#include <atomic>
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
 #include "services/QueryOps.h"
+#include "services/Config.h"
+#include "services/FileCacheBuilder.h"
 
 namespace fs = std::filesystem;
 
@@ -944,6 +951,343 @@ void test_traversal_throughput_and_stat_avoidance() {
     std::cout << "[PASS] test_traversal_throughput_and_stat_avoidance passed.\n";
 }
 
+void test_daemon_lockfile_acquisition_and_isolation() {
+    std::cout << "[TEST] Running test_daemon_lockfile_acquisition_and_isolation...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_daemon_lock";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    // 1. Acquire lock in isolated sandbox directory
+    int lock1 = acquireDaemonLock(sandboxDir.string());
+    TEST_ASSERT(lock1 >= 0);
+
+    // Verify lockfile exists with mode 0600
+    fs::path lockFilePath = sandboxDir / "fizzd.lock";
+    TEST_ASSERT(fs::exists(lockFilePath));
+    struct stat st;
+    TEST_ASSERT(lstat(lockFilePath.c_str(), &st) == 0);
+    TEST_ASSERT(!S_ISLNK(st.st_mode));
+    TEST_ASSERT((st.st_mode & 0777) == 0600);
+
+    // 2. Second concurrent acquisition in same directory must fail
+    int lock2 = acquireDaemonLock(sandboxDir.string());
+    TEST_ASSERT(lock2 < 0);
+
+    // 3. Release lock1, verify re-acquisition succeeds
+    releaseDaemonLock(lock1);
+    TEST_ASSERT(lock1 == -1);
+
+    int lock3 = acquireDaemonLock(sandboxDir.string());
+    TEST_ASSERT(lock3 >= 0);
+    releaseDaemonLock(lock3);
+
+    // 4. Verify O_NOFOLLOW: If fizzd.lock is a symlink, acquisition must fail
+    fs::path decoyTarget = sandboxDir / "decoy_target.txt";
+    {
+        std::ofstream out(decoyTarget);
+        out << "critical data";
+    }
+    fs::remove(lockFilePath, ec);
+    fs::create_symlink(decoyTarget, lockFilePath, ec);
+
+    int lockSymlink = acquireDaemonLock(sandboxDir.string());
+    TEST_ASSERT(lockSymlink < 0);
+
+    // Verify target file was not truncated or modified
+    TEST_ASSERT(fs::file_size(decoyTarget) == 13);
+
+    // Cleanup
+    fs::remove(lockFilePath, ec);
+    fs::remove(decoyTarget, ec);
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_daemon_lockfile_acquisition_and_isolation passed.\n";
+}
+
+void test_binary_cache_symlink_rejection_on_open() {
+    std::cout << "[TEST] Running test_binary_cache_symlink_rejection_on_open...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_cache_symlink";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    fs::path targetFile = sandboxDir / "real_cache.bin";
+    fs::path srcDir = sandboxDir / "src";
+    fs::create_directories(srcDir, ec);
+    {
+        std::ofstream out(srcDir / "file.txt");
+        out << "hello";
+    }
+
+    setBinaryCachePath(targetFile.string());
+    systemFileSearch(srcDir.string());
+    TEST_ASSERT(fs::exists(targetFile));
+
+    // Create a symlink to the real cache
+    fs::path symlinkPath = sandboxDir / "symlink_cache.bin";
+    fs::create_symlink(targetFile, symlinkPath, ec);
+    TEST_ASSERT(fs::is_symlink(symlinkPath));
+
+    // Point to the symlink: loadIndexToMemory must fail because O_NOFOLLOW is enforced
+    setBinaryCachePath(symlinkPath.string());
+    resetLoadedIndex();
+    bool loadSymlink = loadIndexToMemory();
+    TEST_ASSERT(!loadSymlink);
+    TEST_ASSERT(fileStructTable.empty());
+    TEST_ASSERT(g_InMemoryIndexBuffer.empty());
+
+    // reloadIndexIfModified must also reject symlink
+    bool reloadSymlink = reloadIndexIfModified();
+    TEST_ASSERT(!reloadSymlink);
+
+    // Point to real target: loadIndexToMemory succeeds
+    setBinaryCachePath(targetFile.string());
+    bool loadReal = loadIndexToMemory();
+    TEST_ASSERT(loadReal);
+    TEST_ASSERT(!fileStructTable.empty());
+
+    // Cleanup
+    resetLoadedIndex();
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_binary_cache_symlink_rejection_on_open passed.\n";
+}
+
+void test_binary_cache_hot_reloading_on_mtime() {
+    std::cout << "[TEST] Running test_binary_cache_hot_reloading_on_mtime...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_hot_reload";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    fs::path searchRoot = sandboxDir / "root";
+    fs::create_directories(searchRoot, ec);
+    {
+        std::ofstream out(searchRoot / "alpha.txt");
+        out << "alpha file";
+    }
+
+    fs::path cachePath = sandboxDir / "hot_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    resetLoadedIndex();
+
+    // 1. Generate v1 cache and load into memory
+    systemFileSearch(searchRoot.string());
+    TEST_ASSERT(fs::exists(cachePath));
+
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+    TEST_ASSERT(fileStructTable.size() == 1);
+    struct timespec ts1 = getLoadedIndexTimestamp();
+    TEST_ASSERT(ts1.tv_sec > 0 || ts1.tv_nsec > 0);
+
+    // Verify search finds alpha
+    std::vector<SearchHit> hits;
+    searchPaths("alpha", hits, 10);
+    TEST_ASSERT(hits.size() == 1);
+
+    // 2. Calling reloadIndexIfModified without on-disk change must return false (no-op)
+    bool reloadedNoChange = reloadIndexIfModified();
+    TEST_ASSERT(!reloadedNoChange);
+
+    // 3. Add new files to search root and rebuild cache
+    usleep(20000); // 20ms
+    {
+        std::ofstream out(searchRoot / "beta.txt");
+        out << "beta file";
+    }
+    {
+        std::ofstream out(searchRoot / "gamma.txt");
+        out << "gamma file";
+    }
+
+    systemFileSearch(searchRoot.string());
+
+    // Ensure the new file's mtime is newer
+    struct stat st;
+    TEST_ASSERT(stat(cachePath.c_str(), &st) == 0);
+    bool diskIsNewer = (st.st_mtim.tv_sec > ts1.tv_sec) ||
+                       (st.st_mtim.tv_sec == ts1.tv_sec && st.st_mtim.tv_nsec > ts1.tv_nsec);
+    if (!diskIsNewer) {
+        struct timespec newTimes[2] = { {ts1.tv_sec + 1, 0}, {ts1.tv_sec + 1, 0} };
+        utimensat(AT_FDCWD, cachePath.c_str(), newTimes, 0);
+    }
+
+    // 4. Trigger hot-reload: must detect newer mtime and reload cleanly
+    bool reloaded = reloadIndexIfModified();
+    TEST_ASSERT(reloaded);
+    TEST_ASSERT(fileStructTable.size() == 3);
+
+    struct timespec ts2 = getLoadedIndexTimestamp();
+    bool tsIsNewer = (ts2.tv_sec > ts1.tv_sec) ||
+                     (ts2.tv_sec == ts1.tv_sec && ts2.tv_nsec > ts1.tv_nsec);
+    TEST_ASSERT(tsIsNewer);
+
+    // Verify search now immediately returns beta and gamma
+    hits.clear();
+    searchPaths("beta", hits, 10);
+    TEST_ASSERT(hits.size() == 1);
+
+    hits.clear();
+    searchPaths("gamma", hits, 10);
+    TEST_ASSERT(hits.size() == 1);
+
+    // 5. Subsequent reload call returns false since in-memory is up to date
+    bool reloadedAgain = reloadIndexIfModified();
+    TEST_ASSERT(!reloadedAgain);
+
+    // Cleanup
+    resetLoadedIndex();
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_binary_cache_hot_reloading_on_mtime passed.\n";
+}
+
+void test_binary_cache_hot_reload_corrupted_preserves_memory() {
+    std::cout << "[TEST] Running test_binary_cache_hot_reload_corrupted_preserves_memory...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_corrupt_reload";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    fs::path searchRoot = sandboxDir / "root";
+    fs::create_directories(searchRoot, ec);
+    {
+        std::ofstream out(searchRoot / "valid.txt");
+        out << "valid content";
+    }
+
+    fs::path cachePath = sandboxDir / "durability_cache.bin";
+    setBinaryCachePath(cachePath.string());
+    resetLoadedIndex();
+
+    systemFileSearch(searchRoot.string());
+    bool loaded = loadIndexToMemory();
+    TEST_ASSERT(loaded);
+    TEST_ASSERT(fileStructTable.size() == 1);
+    struct timespec tsValid = getLoadedIndexTimestamp();
+
+    // Now corrupt the cache on disk with a newer timestamp
+    usleep(20000);
+    {
+        std::ofstream out(cachePath, std::ios::binary | std::ios::trunc);
+        size_t badCount = 9999;
+        out.write(reinterpret_cast<const char*>(&badCount), sizeof(badCount));
+    }
+    struct timespec bumpTimes[2] = { {tsValid.tv_sec + 2, 0}, {tsValid.tv_sec + 2, 0} };
+    utimensat(AT_FDCWD, cachePath.c_str(), bumpTimes, 0);
+
+    // Hot-reload should fail gracefully without destroying the existing valid index
+    bool reloadSuccess = reloadIndexIfModified();
+    TEST_ASSERT(!reloadSuccess);
+
+    // Verify existing in-memory index is preserved
+    TEST_ASSERT(fileStructTable.size() == 1);
+    TEST_ASSERT(!g_InMemoryIndexBuffer.empty());
+    std::vector<SearchHit> hits;
+    searchPaths("valid", hits, 10);
+    TEST_ASSERT(hits.size() == 1);
+
+    // Cleanup
+    resetLoadedIndex();
+    setBinaryCachePath("");
+    fs::remove_all(sandboxDir, ec);
+
+    std::cout << "[PASS] test_binary_cache_hot_reload_corrupted_preserves_memory passed.\n";
+}
+
+void test_traversal_interruption_clean_exit() {
+    std::cout << "[TEST] Running test_traversal_interruption_clean_exit...\n";
+
+    fs::path sandbox = fs::temp_directory_path() / "fizz_test_sandbox_interruption";
+    std::error_code ec;
+    fs::remove_all(sandbox, ec);
+    fs::create_directories(sandbox / "dir1" / "subdir1", ec);
+    fs::create_directories(sandbox / "dir2" / "subdir2", ec);
+
+    for (int i = 0; i < 20; ++i) {
+        std::ofstream(sandbox / "dir1" / ("f" + std::to_string(i) + ".txt")) << "data";
+        std::ofstream(sandbox / "dir2" / ("g" + std::to_string(i) + ".txt")) << "data";
+    }
+
+    fs::path cachePath = sandbox / "cache.bin";
+    setBinaryCachePath(cachePath.string());
+
+    // 1. Interruption flag set prior to or during traversal pass
+    setSearchInterrupted(true);
+    TEST_ASSERT(isSearchInterrupted() == true);
+
+    systemFileSearch(sandbox.string());
+
+    // Must cleanly abort without publishing cache
+    TEST_ASSERT(!fs::exists(cachePath));
+    TEST_ASSERT(fileStructTable.empty());
+
+    // Verify no temporary files left behind
+    for (const auto& entry : fs::directory_iterator(sandbox)) {
+        std::string filename = entry.path().filename().string();
+        TEST_ASSERT(filename.find(".tmp.") == std::string::npos);
+    }
+
+    // Reset flag and verify normal traversal works
+    setSearchInterrupted(false);
+    TEST_ASSERT(isSearchInterrupted() == false);
+    systemFileSearch(sandbox.string());
+    TEST_ASSERT(fs::exists(cachePath));
+    TEST_ASSERT(!fileStructTable.empty());
+
+    // 2. Interruption via SIGINT signal during traversal pass
+    setupSearchSignalHandlers();
+    raise(SIGINT);
+    TEST_ASSERT(isSearchInterrupted() == true);
+
+    fs::remove(cachePath, ec);
+    systemFileSearch(sandbox.string());
+    TEST_ASSERT(!fs::exists(cachePath));
+
+    // 3. Interruption via SIGTERM signal during traversal pass
+    setSearchInterrupted(false);
+    raise(SIGTERM);
+    TEST_ASSERT(isSearchInterrupted() == true);
+
+    // 4. Interruption mid-traversal via signal from background thread during active pass
+    fs::remove(cachePath, ec);
+    for (int d = 0; d < 30; ++d) {
+        fs::path sub = sandbox / ("deep_dir_" + std::to_string(d));
+        fs::create_directories(sub, ec);
+        for (int i = 0; i < 50; ++i) {
+            std::ofstream(sub / ("deep_" + std::to_string(i) + ".txt")) << "content";
+        }
+    }
+    setSearchInterrupted(false);
+    std::atomic<bool> started{false};
+    std::thread killer([&]() {
+        while (!started.load()) {
+            std::this_thread::yield();
+        }
+        raise(SIGINT);
+    });
+    started.store(true);
+    systemFileSearch(sandbox.string());
+    killer.join();
+    TEST_ASSERT(isSearchInterrupted() == true);
+    TEST_ASSERT(!fs::exists(cachePath));
+
+    restoreSearchSignalHandlers();
+    setSearchInterrupted(false);
+    setBinaryCachePath("");
+    fs::remove_all(sandbox, ec);
+
+    std::cout << "[PASS] test_traversal_interruption_clean_exit passed.\n";
+}
+
 void run_binary_cache_tests() {
     test_file_classification();
     test_default_search_roots();
@@ -958,4 +1302,9 @@ void run_binary_cache_tests() {
     test_custom_ignore_rules_compose_with_defaults();
     test_traversal_no_stat_on_regular_files();
     test_traversal_throughput_and_stat_avoidance();
+    test_daemon_lockfile_acquisition_and_isolation();
+    test_binary_cache_symlink_rejection_on_open();
+    test_binary_cache_hot_reloading_on_mtime();
+    test_binary_cache_hot_reload_corrupted_preserves_memory();
+    test_traversal_interruption_clean_exit();
 }

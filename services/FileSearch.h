@@ -34,3 +34,8 @@ std::string_view classifyPath(std::string_view path, ExecState state);
 
 std::string getBinaryCachePath();
 void setBinaryCachePath(const std::string& path);
+
+void setSearchInterrupted(bool interrupted = true);
+bool isSearchInterrupted();
+void setupSearchSignalHandlers();
+void restoreSearchSignalHandlers();

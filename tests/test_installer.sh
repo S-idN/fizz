@@ -632,6 +632,61 @@ if [ "$RUN_UNIT" = true ]; then
     test_uninstall_default_removes_hotkey
 fi
 
+# -----------------------------------------------------------------------------
+# Seam 6: Systemd Service Unit Template Configuration
+# -----------------------------------------------------------------------------
+echo "--- Seam 6: Systemd Service Unit Template ---"
+
+test_systemd_service_template() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local unit_dir="$tmp_dir/systemd/user"
+    local mock_bin="$tmp_dir/mock_bin"
+    mkdir -p "$unit_dir" "$mock_bin"
+
+    # Mock systemctl to simulate user session availability without executing real systemctl
+    cat > "$mock_bin/systemctl" <<'SEOF'
+#!/usr/bin/env bash
+exit 0
+SEOF
+    chmod +x "$mock_bin/systemctl"
+
+    (
+        export PATH="$mock_bin:$PATH"
+        export FIZZ_UNIT_DIR="$unit_dir"
+        export FIZZ_BIN_DIR="/mock/bin"
+        source "$INSTALL_SH"
+        install_service >/dev/null 2>&1
+    )
+
+    local service_file="$unit_dir/fizzd.service"
+    if [ ! -f "$service_file" ]; then
+        fail "Systemd service template" "fizzd.service was not generated"
+        rm -rf "$tmp_dir"
+        return
+    fi
+
+    local content
+    content=$(cat "$service_file")
+
+    assert_contains "Nice=19" "$content" "Systemd service unit template includes Nice=19"
+    assert_contains "IOSchedulingClass=idle" "$content" "Systemd service unit template includes IOSchedulingClass=idle"
+    assert_not_contains "CPUSchedulingPolicy" "$content" "Systemd service unit template drops CPUSchedulingPolicy=idle"
+    assert_contains "Restart=on-failure" "$content" "Systemd service unit template includes Restart=on-failure"
+    assert_contains "WantedBy=default.target" "$content" "Systemd service unit template includes WantedBy=default.target"
+
+    # Static text check on install.sh directly
+    local static_check
+    static_check=$(grep "CPUSchedulingPolicy" "$INSTALL_SH" || true)
+    assert_eq "" "$static_check" "install.sh contains no CPUSchedulingPolicy directives"
+
+    rm -rf "$tmp_dir"
+}
+
+if [ "$RUN_UNIT" = true ]; then
+    test_systemd_service_template
+fi
+
 if [ "$FAILED" -ne 0 ]; then
     echo "Tests failed with $FAILED failure(s)."
     exit 1

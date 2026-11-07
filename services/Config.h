@@ -14,4 +14,7 @@ std::string getHomeDir();
 std::string getConfigPath();
 void setConfigPath(const std::string& path);
 
+std::string getUserRuntimeDir();
+void setCustomRuntimeDir(const std::string& path);
+
 FizzConfig loadConfig(const std::string& configPath = "");

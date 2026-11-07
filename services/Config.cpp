@@ -2,8 +2,12 @@
 #include "FileSearch.h"
 #include <cstdlib>
 #include <cctype>
+#include <cstring>
+#include <cerrno>
+#include <iostream>
 #include <pwd.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -12,6 +16,48 @@
 namespace fs = std::filesystem;
 
 static std::string s_CustomConfigPath = "";
+static std::string s_CustomRuntimeDir = "";
+
+void setCustomRuntimeDir(const std::string& path) {
+    s_CustomRuntimeDir = path;
+}
+
+std::string getUserRuntimeDir() {
+    if (!s_CustomRuntimeDir.empty()) {
+        return s_CustomRuntimeDir;
+    }
+
+    const char* xdg = std::getenv("XDG_RUNTIME_DIR");
+    if (xdg && xdg[0] != '\0') {
+        std::error_code ec;
+        if (fs::is_directory(xdg, ec)) {
+            return std::string(xdg);
+        }
+    }
+
+    uid_t uid = getuid();
+    std::string fallback = "/tmp/fizz-" + std::to_string(uid);
+
+    struct stat st;
+    if (lstat(fallback.c_str(), &st) != 0) {
+        if (mkdir(fallback.c_str(), 0700) != 0 && errno != EEXIST) {
+            std::cerr << "[ERROR] Could not create secure runtime directory: " << fallback
+                      << " (" << strerror(errno) << ")\n";
+            return "";
+        }
+        chmod(fallback.c_str(), 0700);
+    } else {
+        // Exists: ensure it's not a symlink, is a directory, and owned by this uid
+        if (S_ISLNK(st.st_mode) || !S_ISDIR(st.st_mode) || st.st_uid != uid) {
+            std::cerr << "[ERROR] Insecure or invalid runtime directory: " << fallback << "\n";
+            return "";
+        }
+        if ((st.st_mode & 0777) != 0700) {
+            chmod(fallback.c_str(), 0700);
+        }
+    }
+    return fallback;
+}
 
 std::string getHomeDir() {
     const char* home = std::getenv("HOME");

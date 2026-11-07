@@ -35,7 +35,14 @@ static void glfwError(int code, const char* msg) {
     fprintf(stderr, "GLFW error %d: %s\n", code, msg);
 }
 
+static bool g_IndexReloadedOnFocus = false;
+
 static void windowFocusCallback(GLFWwindow* window, int focused) {
+    if (focused != 0) {
+        if (reloadIndexIfModified()) {
+            g_IndexReloadedOnFocus = true;
+        }
+    }
     auto* tracker = static_cast<FocusTracker*>(glfwGetWindowUserPointer(window));
     if (tracker && tracker->handleFocusChange(focused != 0)) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -122,9 +129,20 @@ int main() {
     int selected = 0;
     bool scrollToSel = false;
     std::string warningMsg;
+    auto lastInputTime = std::chrono::steady_clock::now();
+    constexpr auto kIdleThreshold = std::chrono::milliseconds(500);
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
+
+        if (g_IndexReloadedOnFocus) {
+            g_IndexReloadedOnFocus = false;
+            if (!lastQuery.empty()) {
+                searchPaths(lastQuery, results, kMaxHits);
+                selected = 0;
+                warningMsg.clear();
+            }
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -138,6 +156,12 @@ int main() {
         if (fizz::ui::renderSearchPill(buf, sizeof(buf), fizz::ui::kDefaultPlaceholderText)) {
             std::string_view q(buf);
             if (q != lastQuery) {
+                auto now = std::chrono::steady_clock::now();
+                bool wasIdle = lastQuery.empty() || (now - lastInputTime >= kIdleThreshold);
+                if (wasIdle) {
+                    reloadIndexIfModified();
+                }
+                lastInputTime = now;
                 searchPaths(q, results, kMaxHits);
                 lastQuery.assign(q);
                 selected = 0;

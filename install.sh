@@ -175,7 +175,6 @@ Restart=on-failure
 RestartSec=5
 Nice=19
 IOSchedulingClass=idle
-CPUSchedulingPolicy=idle
 
 [Install]
 WantedBy=default.target
