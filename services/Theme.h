@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+#include <string_view>
 #include "imgui.h"
 
 namespace fizz::theme {
@@ -25,6 +27,27 @@ struct Palette {
     static constexpr ImVec4 kTagGrey       = {0.600f, 0.650f, 0.670f, 1.00f};
     static constexpr ImVec4 kTagTeal       = {0.200f, 0.780f, 0.720f, 1.00f}; // Crisp teal for doc
     static constexpr ImVec4 kTagAction     = {0.780f, 0.350f, 0.920f, 1.00f}; // Distinct violet for builtin actions
+};
+
+// Color definitions matching GNOME Adwaita Light palette
+struct LightPalette {
+    static constexpr ImVec4 kBg            = {0.965f, 0.961f, 0.957f, 0.96f}; // Adwaita Light Surface (#f6f5f4 @ 96%)
+    static constexpr ImVec4 kBorder        = {0.000f, 0.000f, 0.000f, 0.12f}; // Crisp translucent border highlight
+    static constexpr ImVec4 kText          = {0.141f, 0.141f, 0.141f, 1.00f}; // Adwaita Dark Text (#242424)
+    static constexpr ImVec4 kDim           = {0.450f, 0.450f, 0.450f, 1.00f}; // Secondary / Muted Text
+    static constexpr ImVec4 kFrameBg       = {0.000f, 0.000f, 0.000f, 0.05f}; // Light elevated input frame surface
+    static constexpr ImVec4 kFrameBgHover  = {0.000f, 0.000f, 0.000f, 0.08f};
+    static constexpr ImVec4 kFrameBgActive = {0.000f, 0.000f, 0.000f, 0.12f};
+    static constexpr ImVec4 kAmber         = {0.850f, 0.550f, 0.050f, 1.00f}; // Warning highlight
+};
+
+// Curated accent color palette choices
+struct Accents {
+    static constexpr ImVec4 kBlue    = {0.208f, 0.518f, 0.894f, 1.00f}; // Adwaita Blue (#3584e4)
+    static constexpr ImVec4 kEmerald = {0.180f, 0.761f, 0.494f, 1.00f}; // Emerald Green (#2ec27e)
+    static constexpr ImVec4 kPurple  = {0.569f, 0.255f, 0.675f, 1.00f}; // Purple (#9141ac)
+    static constexpr ImVec4 kAmber   = {0.950f, 0.700f, 0.100f, 1.00f}; // Amber (#f2b31a)
+    static constexpr ImVec4 kCrimson = {0.878f, 0.106f, 0.141f, 1.00f}; // Crimson (#e01b24)
 };
 
 // Layout and soft rounding metrics
@@ -66,7 +89,21 @@ ImVec4 withAlpha(ImVec4 color, float alpha);
 // Calculates row indicator strip bounds
 IndicatorGeometry calculateIndicatorGeometry(const ImVec2& itemMin, const ImVec2& itemMax);
 
-// Configures Dear ImGui styling with Adwaita dark theme and soft rounding metrics
-void applyTheme(ImGuiStyle& style);
+// Returns the color associated with an accent color ID ("blue", "emerald", "purple", "amber", "crimson").
+// Handles aliases (e.g. "green" -> emerald, "red" -> crimson, "orange" -> amber).
+// Falls back to Adwaita Blue if unrecognized.
+ImVec4 getAccentColor(std::string_view accentName);
+
+// Returns the active accent color
+ImVec4 getActiveAccent();
+
+// Returns the active theme name ("dark" or "light")
+std::string getActiveTheme();
+
+// Sets active theme and accent state without requiring ImGuiStyle
+void setActiveThemeAndAccent(std::string_view theme, std::string_view accent);
+
+// Configures Dear ImGui styling with theme (Dark/Light) and accent color, applying soft rounding metrics
+void applyTheme(ImGuiStyle& style, std::string_view theme = "dark", std::string_view accent = "blue");
 
 } // namespace fizz::theme

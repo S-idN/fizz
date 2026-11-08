@@ -28,6 +28,7 @@
 #include "services/CacheTab.h"
 #include "services/ViewState.h"
 #include "services/BuiltinActions.h"
+#include "services/AppearanceTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -83,7 +84,7 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     if (selected) {
         auto geom = fizz::theme::calculateIndicatorGeometry(min, max);
-        dl->AddRectFilled(geom.min, geom.max, ImGui::GetColorU32(fizz::theme::Palette::kAccent), geom.rounding);
+        dl->AddRectFilled(geom.min, geom.max, ImGui::GetColorU32(fizz::theme::getActiveAccent()), geom.rounding);
     }
 
     fizz::ui::renderRowContent(dl, layout, name, badge);
@@ -130,7 +131,7 @@ int main() {
         io.Fonts->AddFontDefault();
     }
     ImGui::StyleColorsDark();
-    fizz::theme::applyTheme(ImGui::GetStyle());
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(nullptr);
 
@@ -268,9 +269,13 @@ int main() {
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
             if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+                if (ImGui::BeginTabItem("Appearance")) {
+                    fizz::ui::renderAppearanceTab(config);
+                    ImGui::EndTabItem();
+                }
                 if (ImGui::BeginTabItem("General")) {
                     ImGui::Spacing();
-                    ImGui::TextColored(fizz::theme::Palette::kAccent, "General Settings");
+                    ImGui::TextColored(fizz::theme::getActiveAccent(), "General Settings");
                     ImGui::Separator();
                     ImGui::Spacing();
                     ImGui::Text("Config Version: %d", config.config_version);
@@ -298,6 +303,7 @@ int main() {
             }
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
             ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
             ImGui::EndChild();
             break;
@@ -310,7 +316,7 @@ int main() {
 
             ImGui::BeginChild("about_container", {0, 0}, false);
             ImGui::Spacing();
-            ImGui::TextColored(fizz::theme::Palette::kAccent, "Fizz Application Launcher");
+            ImGui::TextColored(fizz::theme::getActiveAccent(), "Fizz Application Launcher");
             ImGui::TextDisabled("v1.0.0");
             ImGui::Separator();
             ImGui::Spacing();
