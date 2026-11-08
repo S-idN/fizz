@@ -66,6 +66,11 @@ int watchDir(int fd, const std::string& dir, std::unordered_map<int, std::string
             std::cerr << "[WARNING] inotify_add_watch failed for '" << dir << "': "
                       << "kernel watch limit reached (ENOSPC). "
                       << "Increase limit with 'sysctl fs.inotify.max_user_watches'.\n";
+            std::string rtDir = getUserRuntimeDir();
+            if (!rtDir.empty()) {
+                int wlFd = open((rtDir + "/fizzd.watch_limit").c_str(), O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
+                if (wlFd >= 0) close(wlFd);
+            }
         }
     }
     return wd;
@@ -151,11 +156,16 @@ int acquireDaemonLock(const std::string& customRuntimeDir) {
         close(fd);
         return -1;
     }
+    std::string pidStr = std::to_string(getpid()) + "\n";
+    if (ftruncate(fd, 0) == 0) {
+        (void)pwrite(fd, pidStr.data(), pidStr.size(), 0);
+    }
     return fd;
 }
 
 void releaseDaemonLock(int& fd) {
     if (fd >= 0) {
+        ftruncate(fd, 0);
         flock(fd, LOCK_UN);
         close(fd);
         fd = -1;
