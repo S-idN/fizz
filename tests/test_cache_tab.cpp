@@ -354,6 +354,111 @@ static void test_cache_tab_ui_state() {
     std::cout << "[PASS] test_cache_tab_ui_state passed.\n";
 }
 
+static void test_cache_tab_spinner_state() {
+    std::cout << "[TEST] Running test_cache_tab_spinner_state...\n";
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::CacheTab tab(config);
+
+    // Initial state: no rebuild in flight, spinner inactive
+    CACHE_TEST_ASSERT(!tab.isRebuilding());
+    CACHE_TEST_ASSERT(!tab.isSpinnerActive());
+
+    // Programmatically set rebuilding state to true
+    tab.setRebuilding(true);
+    CACHE_TEST_ASSERT(tab.isRebuilding());
+    CACHE_TEST_ASSERT(tab.isSpinnerActive());
+
+    // Render in headless ImGui while spinner is active
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    io.DisplaySize = ImVec2(800, 600);
+
+    ImGui::NewFrame();
+    ImGui::Begin("SpinnerTestWindow");
+    tab.render(config);
+    ImGui::End();
+    ImGui::Render();
+
+    // Reset rebuilding state to false
+    tab.setRebuilding(false);
+    CACHE_TEST_ASSERT(!tab.isRebuilding());
+    CACHE_TEST_ASSERT(!tab.isSpinnerActive());
+
+    ImGui::NewFrame();
+    ImGui::Begin("SpinnerTestWindow");
+    tab.render(config);
+    ImGui::End();
+    ImGui::Render();
+
+    ImGui::DestroyContext(ctx);
+
+    std::cout << "[PASS] test_cache_tab_spinner_state passed.\n";
+}
+
+static void test_cache_tab_async_rebuild_and_diagnostics_refresh() {
+    std::cout << "[TEST] Running test_cache_tab_async_rebuild_and_diagnostics_refresh...\n";
+
+    fs::path sandboxDir = fs::temp_directory_path() / "fizz_test_tab_async";
+    std::error_code ec;
+    fs::remove_all(sandboxDir, ec);
+    fs::create_directories(sandboxDir, ec);
+
+    fs::path cacheFile = sandboxDir / "cache.bin";
+    size_t structCount = 100;
+    size_t charCount = 1000;
+    {
+        std::ofstream out(cacheFile, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&structCount), sizeof(structCount));
+        out.write(reinterpret_cast<const char*>(&charCount), sizeof(charCount));
+        std::string dummy(100, 'a');
+        out.write(dummy.data(), dummy.size());
+    }
+
+    FizzConfig config = FizzConfig::defaults();
+    config.binary_cache_path = cacheFile.string();
+
+    fizz::CacheTab tab(config);
+    auto initialDiag = fizz::getCacheDiagnostics(cacheFile.string());
+    CACHE_TEST_ASSERT(initialDiag.entryCount == 100);
+
+    // Setup mock systemctl runner on DaemonClient which updates cache file
+    tab.getDaemonClient().setSystemctlRunner([&](const std::vector<std::string>&) -> int {
+        // Sleep briefly to simulate background crawl work
+        usleep(30000);
+        size_t newStructCount = 350;
+        size_t newCharCount = 4500;
+        std::ofstream out(cacheFile, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(&newStructCount), sizeof(newStructCount));
+        out.write(reinterpret_cast<const char*>(&newCharCount), sizeof(newCharCount));
+        std::string dummy(500, 'b');
+        out.write(dummy.data(), dummy.size());
+        return 0;
+    });
+
+    // Trigger rebuild asynchronously
+    tab.triggerRebuild(config);
+    CACHE_TEST_ASSERT(tab.isRebuilding());
+    CACHE_TEST_ASSERT(tab.isSpinnerActive());
+
+    // Wait for async completion
+    tab.waitForRebuildCompletion(3000);
+    CACHE_TEST_ASSERT(!tab.isRebuilding());
+    CACHE_TEST_ASSERT(!tab.isSpinnerActive());
+
+    // Verify diagnostics were refreshed to 350 entries
+    auto refreshedDiag = fizz::getCacheDiagnostics(cacheFile.string());
+    CACHE_TEST_ASSERT(refreshedDiag.entryCount == 350);
+    CACHE_TEST_ASSERT(refreshedDiag.fileSizeBytes > initialDiag.fileSizeBytes);
+
+    fs::remove_all(sandboxDir, ec);
+    std::cout << "[PASS] test_cache_tab_async_rebuild_and_diagnostics_refresh passed.\n";
+}
+
 void run_cache_tab_tests() {
     std::cout << "--- Running CacheTab Unit Tests ---\n";
     test_file_size_formatting();
@@ -365,5 +470,7 @@ void run_cache_tab_tests() {
     test_path_validation_parent_checks();
     test_configuration_synchronization();
     test_cache_tab_ui_state();
+    test_cache_tab_spinner_state();
+    test_cache_tab_async_rebuild_and_diagnostics_refresh();
     std::cout << "--- CacheTab Unit Tests Passed ---\n";
 }

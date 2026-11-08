@@ -17,6 +17,7 @@ void run_appearance_tab_tests();
 void run_indexing_tab_tests();
 void run_general_tab_tests();
 void run_about_view_tests();
+void run_daemon_client_tests();
 
 int main(int argc, char* argv[]) {
     std::string suite = (argc > 1) ? argv[1] : "";
@@ -44,6 +45,7 @@ int main(int argc, char* argv[]) {
     run_if("indexing_tab", run_indexing_tab_tests);
     run_if("general_tab", run_general_tab_tests);
     run_if("about_view", run_about_view_tests);
+    run_if("daemon_client", run_daemon_client_tests);
 
     std::cout << "All tests passed successfully.\n";
     return 0;

@@ -19,6 +19,7 @@ set(SERVICES_SOURCES
     services/AppLauncher.cpp
     services/CacheTab.cpp
     services/Config.cpp
+    services/DaemonClient.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
     services/FontDiscovery.cpp
@@ -98,6 +99,8 @@ add_executable(fizz_tests
     tests/test_appearance_tab.cpp
     tests/test_indexing_tab.cpp
     tests/test_general_tab.cpp
+    tests/test_daemon_client.cpp
+    services/DaemonClient.cpp
     services/CacheTab.cpp
     services/AppearanceTab.cpp
     services/AboutView.cpp
