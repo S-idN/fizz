@@ -1,5 +1,6 @@
 #include "IndexingTab.h"
 #include "Theme.h"
+#include "FileSearch.h"
 
 #include <cctype>
 #include <algorithm>
@@ -38,6 +39,71 @@ const char* mutationResultToString(MutationResult result) {
         case MutationResult::SaveFailed: return "Failed to save configuration";
     }
     return "Unknown";
+}
+
+PresetProfile getPresetProfile(PresetType type, const std::string& customHome) {
+    std::string home = !customHome.empty() ? customHome : getHomeDir();
+
+    PresetProfile profile;
+    switch (type) {
+        case PresetType::Minimalist:
+            profile.name = "Minimalist";
+            profile.searchRoots = {
+                home + "/Documents",
+                home + "/Desktop",
+                home + "/Notes",
+                home + "/Music",
+                home + "/Pictures",
+                "/usr/share/applications",
+                home + "/.local/share/applications"
+            };
+            profile.ignoreRules = {};
+            break;
+
+        case PresetType::StandardDesktop:
+            profile.name = "Standard Desktop";
+            profile.searchRoots = {
+                home,
+                "/usr/share/applications",
+                home + "/.local/share/applications"
+            };
+            profile.ignoreRules = {
+                ".cache"
+            };
+            break;
+
+        case PresetType::Developer:
+            profile.name = "Developer";
+            profile.searchRoots = {
+                home,
+                "/usr/share/applications",
+                home + "/.local/share/applications",
+                home + "/Projects",
+                home + "/Developer",
+                home + "/src"
+            };
+            profile.ignoreRules = {
+                "node_modules",
+                "target",
+                "build",
+                ".venv",
+                ".git",
+                ".pnpm-store",
+                "dist",
+                "bin",
+                "obj"
+            };
+            break;
+
+        case PresetType::GodMode:
+            profile.name = "God Mode";
+            profile.searchRoots = {
+                "/"
+            };
+            profile.ignoreRules = {};
+            break;
+    }
+    return profile;
 }
 
 std::string normalizeSearchRoot(std::string_view rawPath, const std::string& customHome) {
@@ -241,6 +307,62 @@ MutationResult IndexingTab::removeSelectedRule(FizzConfig& config, const std::st
     return res;
 }
 
+MutationResult applyPreset(FizzConfig& config, PresetType type,
+                           const std::string& configPath,
+                           const std::string& customHome) {
+    PresetProfile profile = getPresetProfile(type, customHome);
+    std::vector<std::string> prevRoots = config.searchRoots;
+    std::vector<std::string> prevRules = config.ignoreRules;
+
+    config.searchRoots = profile.searchRoots;
+    config.ignoreRules = profile.ignoreRules;
+
+    if (!saveConfig(config, configPath)) {
+        config.searchRoots = prevRoots;
+        config.ignoreRules = prevRules;
+        return MutationResult::SaveFailed;
+    }
+
+    setCustomIgnoreRules(config.ignoreRules);
+    return MutationResult::Success;
+}
+
+bool IndexingTab::confirmPresetApplication(FizzConfig& config, const std::string& configPath, const std::string& customHome) {
+    if (!m_state.pendingPreset.has_value()) {
+        return false;
+    }
+    PresetType type = *m_state.pendingPreset;
+    MutationResult res = applyPreset(config, type, configPath, customHome);
+    if (res == MutationResult::Success) {
+        m_state.setStatus("Applied preset: " + getPresetProfile(type, customHome).name, false);
+        m_state.selectedRootIndex = config.searchRoots.empty() ? -1 : 0;
+        m_state.selectedRuleIndex = config.ignoreRules.empty() ? -1 : 0;
+    } else {
+        m_state.setStatus("Failed to persist preset changes to configuration", true);
+    }
+    m_state.cancelPresetConfirmation();
+    return (res == MutationResult::Success);
+}
+
+std::string IndexingTab::getPresetConfirmationMessage(const FizzConfig& config) const {
+    std::string name = m_state.pendingPreset.has_value() ?
+        getPresetProfile(*m_state.pendingPreset).name : "Preset";
+    return "Applying the '" + name + "' preset will overwrite your current configuration (" +
+           std::to_string(config.searchRoots.size()) + " Search Roots and " +
+           std::to_string(config.ignoreRules.size()) + " Ignore Rules).\n\n" +
+           "Do you want to proceed?";
+}
+
+std::string IndexingTab::getGodModeWarningMessage(const FizzConfig& config) const {
+    return "Warning: God Mode indexes the entire root filesystem ('/'). This can cause high CPU and RAM usage.\n\n"
+           "Note: kernel inotify watch limits may be reached, leading to inotify watch exhaustion.\n"
+           "You may need to tune the limit using 'fs.inotify.max_user_watches' (e.g. sysctl fs.inotify.max_user_watches=524288).\n\n"
+           "This will overwrite your current configuration (" +
+           std::to_string(config.searchRoots.size()) + " Search Roots and " +
+           std::to_string(config.ignoreRules.size()) + " Ignore Rules).\n\n"
+           "Are you sure you want to enable God Mode?";
+}
+
 void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::string& configPath) {
     ImGuiIO& io = ImGui::GetIO();
     float availW = ImGui::GetContentRegionAvail().x;
@@ -281,8 +403,37 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     }
 
     // Allocate list heights dynamically
-    // Fixed UI elements take ~140px total
-    float sectionListH = std::max(70.0f, (availH - 160.0f) * 0.5f);
+    // Fixed UI elements take ~190px total with Presets toolbar
+    float sectionListH = std::max(70.0f, (availH - 200.0f) * 0.5f);
+
+    // ==========================================
+    // PRESET PROFILES BAR
+    // ==========================================
+    ImGui::TextColored(theme::Palette::kAccent, "Presets:");
+    ImGui::SameLine();
+    if (ImGui::Button("Minimalist##btn_preset_minimalist")) {
+        state.requestApplyPreset(PresetType::Minimalist);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Standard Desktop##btn_preset_standard")) {
+        state.requestApplyPreset(PresetType::StandardDesktop);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Developer##btn_preset_developer")) {
+        state.requestApplyPreset(PresetType::Developer);
+    }
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.25f, 0.25f, 1.0f));
+    if (ImGui::Button("God Mode##btn_preset_god_mode")) {
+        state.requestApplyPreset(PresetType::GodMode);
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 
     // ==========================================
     // SECTION 1: SEARCH ROOTS
@@ -442,6 +593,94 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
         } else {
             state.setStatus("Failed to remove ignore rule", true);
         }
+    }
+
+    // ==========================================
+    // PRESET CONFIRMATION MODALS
+    // ==========================================
+    if (state.showPresetConfirmationModal) {
+        ImGui::OpenPopup("Apply Preset Confirmation##preset_modal");
+    }
+
+    if (ImGui::BeginPopupModal("Apply Preset Confirmation##preset_modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string presetName = state.pendingPreset.has_value() ?
+            getPresetProfile(state.pendingPreset.value()).name : "Preset";
+        ImGui::Text("Apply '%s' Preset?", presetName.c_str());
+        ImGui::Spacing();
+        ImGui::TextWrapped("Applying this preset will overwrite your current configuration (%zu Search Roots and %zu Ignore Rules).",
+                           config.searchRoots.size(), config.ignoreRules.size());
+        ImGui::TextWrapped("Do you want to proceed?");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Apply##btn_confirm_preset", ImVec2(120, 0))) {
+            if (state.pendingPreset.has_value()) {
+                PresetType type = state.pendingPreset.value();
+                MutationResult res = applyPreset(config, type, configPath);
+                if (res == MutationResult::Success) {
+                    state.setStatus("Applied preset: " + getPresetProfile(type).name, false);
+                    state.selectedRootIndex = config.searchRoots.empty() ? -1 : 0;
+                    state.selectedRuleIndex = config.ignoreRules.empty() ? -1 : 0;
+                } else {
+                    state.setStatus("Failed to persist preset changes to configuration", true);
+                }
+            }
+            state.cancelPresetConfirmation();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##btn_cancel_preset", ImVec2(120, 0))) {
+            state.cancelPresetConfirmation();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // Dedicated God Mode Warning Modal
+    if (state.showGodModeWarningModal) {
+        ImGui::OpenPopup("Warning: God Mode##god_mode_modal");
+    }
+
+    if (ImGui::BeginPopupModal("Warning: God Mode##god_mode_modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "⚠️ WARNING: High Resource Usage");
+        ImGui::Spacing();
+        ImGui::TextWrapped("God Mode indexes the entire root filesystem ('/'). This can cause high CPU and RAM usage.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Note: kernel inotify watch limits may be reached, leading to inotify watch exhaustion.");
+        ImGui::TextWrapped("You may need to tune the limit using 'fs.inotify.max_user_watches' (e.g. sysctl fs.inotify.max_user_watches=524288).");
+        ImGui::Spacing();
+        ImGui::TextWrapped("This will overwrite your current configuration (%zu Search Roots and %zu Ignore Rules).",
+                           config.searchRoots.size(), config.ignoreRules.size());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.25f, 0.25f, 1.0f));
+        if (ImGui::Button("Enable God Mode##btn_confirm_god_mode", ImVec2(150, 0))) {
+            MutationResult res = applyPreset(config, PresetType::GodMode, configPath);
+            if (res == MutationResult::Success) {
+                state.setStatus("Applied preset: God Mode", false);
+                state.selectedRootIndex = config.searchRoots.empty() ? -1 : 0;
+                state.selectedRuleIndex = config.ignoreRules.empty() ? -1 : 0;
+            } else {
+                state.setStatus("Failed to persist preset changes to configuration", true);
+            }
+            state.cancelPresetConfirmation();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##btn_cancel_god_mode", ImVec2(120, 0))) {
+            state.cancelPresetConfirmation();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 
