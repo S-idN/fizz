@@ -25,6 +25,7 @@ set(SERVICES_SOURCES
     services/Theme.cpp
     services/SearchUi.cpp
     services/ViewMode.cpp
+    services/ViewState.cpp
 )
 
 set(IMGUI_CORE_SOURCES
@@ -86,6 +87,7 @@ add_executable(fizz_tests
     tests/test_file_cache_builder.cpp
     tests/test_view_mode.cpp
     tests/test_cache_tab.cpp
+    tests/test_view_state.cpp
     services/CacheTab.cpp
     services/Config.cpp
     services/FileCacheBuilder.cpp
@@ -98,6 +100,7 @@ add_executable(fizz_tests
     services/Theme.cpp
     services/SearchUi.cpp
     services/ViewMode.cpp
+    services/ViewState.cpp
     ${IMGUI_CORE_SOURCES}
 )
 

@@ -26,6 +26,7 @@
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
 #include "services/CacheTab.h"
+#include "services/ViewState.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -137,7 +138,8 @@ int main() {
     auto lastInputTime = std::chrono::steady_clock::now();
     constexpr auto kIdleThreshold = std::chrono::milliseconds(500);
 
-    ViewModeStateMachine stateMachine(ViewMode::Search);
+    ViewMode initialMode = loadViewState(config.view_state_grace_seconds);
+    ViewModeStateMachine stateMachine(initialMode);
     stateMachine.setSearchStatePointers(&lastQuery, &results, buf);
     stateMachine.setOnCancelSearch([&]() {
         selected = 0;
@@ -330,6 +332,13 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
+    }
+
+    ViewMode exitMode = stateMachine.getCurrentMode();
+    if (exitMode == ViewMode::Settings || exitMode == ViewMode::About) {
+        saveViewState(exitMode);
+    } else {
+        clearViewState();
     }
 
     ImGui_ImplOpenGL3_Shutdown();

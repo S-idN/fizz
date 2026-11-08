@@ -26,18 +26,40 @@ void setCustomRuntimeDir(const std::string& path) {
 
 std::string getUserRuntimeDir() {
     if (!s_CustomRuntimeDir.empty()) {
+        struct stat st;
+        if (lstat(s_CustomRuntimeDir.c_str(), &st) != 0) {
+            mkdir(s_CustomRuntimeDir.c_str(), 0700);
+        }
         return s_CustomRuntimeDir;
     }
 
+    uid_t uid = getuid();
     const char* xdg = std::getenv("XDG_RUNTIME_DIR");
     if (xdg && xdg[0] != '\0') {
         std::error_code ec;
         if (fs::is_directory(xdg, ec)) {
-            return std::string(xdg);
+            std::string fizzDir = std::string(xdg) + "/fizz";
+            struct stat st;
+            if (lstat(fizzDir.c_str(), &st) != 0) {
+                if (mkdir(fizzDir.c_str(), 0700) != 0 && errno != EEXIST) {
+                    std::cerr << "[ERROR] Could not create secure runtime directory: " << fizzDir
+                              << " (" << strerror(errno) << ")\n";
+                    return "";
+                }
+                chmod(fizzDir.c_str(), 0700);
+            } else {
+                if (S_ISLNK(st.st_mode) || !S_ISDIR(st.st_mode) || st.st_uid != uid) {
+                    std::cerr << "[ERROR] Insecure or invalid runtime directory: " << fizzDir << "\n";
+                    return "";
+                }
+                if ((st.st_mode & 0777) != 0700) {
+                    chmod(fizzDir.c_str(), 0700);
+                }
+            }
+            return fizzDir;
         }
     }
 
-    uid_t uid = getuid();
     std::string fallback = "/tmp/fizz-" + std::to_string(uid);
 
     struct stat st;
