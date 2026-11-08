@@ -403,6 +403,18 @@ void test_headless_ui_rendering() {
     // Render with warning message
     fizz::ui::renderStatusFooter(5, "⚠️ Untrusted Desktop Entry");
 
+    // Render in-app view headers (Settings & About)
+    bool clickedSettings = fizz::ui::renderViewHeader("Settings");
+    UI_TEST_ASSERT(!clickedSettings);
+
+    bool clickedAbout = fizz::ui::renderViewHeader("About");
+    UI_TEST_ASSERT(!clickedAbout);
+
+    auto headerLayout = fizz::ui::calculateViewHeaderLayout({0.0f, 0.0f}, 750.0f, "Settings");
+    UI_TEST_ASSERT(nearEqual(headerLayout.headerHeight, fizz::ui::Metrics::kHeaderHeight));
+    UI_TEST_ASSERT(headerLayout.backButtonWidth > 0.0f);
+    UI_TEST_ASSERT(headerLayout.titlePos.x > headerLayout.backButtonMax.x);
+
     // Render search hit row with category badge pill and truncated directory path
     ImVec2 rMin = {0.0f, 50.0f};
     ImVec2 rMax = {750.0f, 74.0f};

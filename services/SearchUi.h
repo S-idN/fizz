@@ -18,6 +18,9 @@ struct CategoryBadge {
 // Default search input placeholder hint text
 constexpr std::string_view kDefaultPlaceholderText = "Search files and apps...";
 
+// Default back button navigation label for Settings and About view headers
+constexpr std::string_view kBackToSearchLabel = "← Back to Search";
+
 // Layout and sizing metrics for modern UI components
 struct Metrics {
     static constexpr float kSearchPillHeight   = 38.0f;
@@ -33,6 +36,12 @@ struct Metrics {
     static constexpr float kBadgeSpacing       = 8.0f;
     static constexpr float kBadgeRounding      = 9.0f;
     static constexpr float kFileNameDirSpacing = 16.0f;
+    static constexpr float kHeaderHeight       = 38.0f;
+    static constexpr float kHeaderPaddingX     = 12.0f;
+    static constexpr float kBackBtnPaddingX    = 10.0f;
+    static constexpr float kBackBtnPaddingY    = 5.0f;
+    static constexpr float kBackBtnRounding    = 6.0f;
+    static constexpr float kHeaderTitleSpacing = 16.0f;
 };
 
 // Geometry bounds and positioning for category badge pill
@@ -81,6 +90,73 @@ struct FooterLayout {
     float reservedBottomSpace;
     float reservedChildHeight; // Negative height offset for BeginChild
 };
+
+// Geometry bounds and positioning for in-app view header (Settings, About)
+struct ViewHeaderGeometry {
+    ImVec2 headerMin;
+    ImVec2 headerMax;
+    float headerHeight;
+    ImVec2 backButtonMin;
+    ImVec2 backButtonMax;
+    ImVec2 backButtonTextPos;
+    float backButtonWidth;
+    float backButtonHeight;
+    ImVec2 titlePos;
+    float titleWidth;
+    float separatorY;
+};
+
+// Calculates layout geometry for in-app view header container, "← Back to Search" button, and view title
+template<typename MeasureFn>
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title, MeasureFn&& measureFn,
+                                             float headerHeight = Metrics::kHeaderHeight,
+                                             float fontSize = 16.0f,
+                                             std::string_view backLabel = kBackToSearchLabel) {
+    float hHeight = std::max(0.0f, headerHeight);
+    float w = std::max(0.0f, width);
+    ImVec2 headerMin = origin;
+    ImVec2 headerMax = {origin.x + w, origin.y + hHeight};
+
+    float backTextW = measureFn(backLabel);
+    float backBtnW = backTextW + 2.0f * Metrics::kBackBtnPaddingX;
+    float backBtnH = fontSize + 2.0f * Metrics::kBackBtnPaddingY;
+
+    float backBtnX = headerMin.x + Metrics::kHeaderPaddingX;
+    float backBtnY = headerMin.y + (hHeight - backBtnH) * 0.5f;
+
+    ImVec2 backButtonMin = {backBtnX, backBtnY};
+    ImVec2 backButtonMax = {backBtnX + backBtnW, backBtnY + backBtnH};
+    ImVec2 backButtonTextPos = {backBtnX + Metrics::kBackBtnPaddingX, backBtnY + Metrics::kBackBtnPaddingY};
+
+    float titleW = measureFn(title);
+    float titleX = backButtonMax.x + Metrics::kHeaderTitleSpacing;
+    float titleY = headerMin.y + (hHeight - fontSize) * 0.5f;
+    ImVec2 titlePos = {titleX, titleY};
+
+    float separatorY = headerMax.y;
+
+    return ViewHeaderGeometry{
+        headerMin,
+        headerMax,
+        hHeight,
+        backButtonMin,
+        backButtonMax,
+        backButtonTextPos,
+        backBtnW,
+        backBtnH,
+        titlePos,
+        titleW,
+        separatorY
+    };
+}
+
+// Calculates in-app view header layout using default ImGui text measurement
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title,
+                                             float headerHeight = Metrics::kHeaderHeight,
+                                             float fontSize = 16.0f,
+                                             std::string_view backLabel = kBackToSearchLabel);
 
 // Calculates geometry for the integrated search pill container, prompt, and input box
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize = 16.0f);
@@ -275,5 +351,9 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder = 
 
 // Renders the pinned status footer at window bottom with search hit count and keyboard shortcuts
 void renderStatusFooter(int hitCount, std::string_view warningMsg = "");
+
+// Renders the in-app view header with "← Back to Search" button and view title
+// Returns true when the "← Back to Search" button is clicked
+bool renderViewHeader(std::string_view title, std::string_view backLabel = kBackToSearchLabel);
 
 } // namespace fizz::ui

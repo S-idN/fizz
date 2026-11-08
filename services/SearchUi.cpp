@@ -294,4 +294,55 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
     ImGui::Dummy(ImVec2(availW, footerH));
 }
 
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title,
+                                             float headerHeight,
+                                             float fontSize,
+                                             std::string_view backLabel) {
+    auto measureFn = [](std::string_view s) -> float {
+        return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+    };
+    return calculateViewHeaderLayout(origin, width, title, measureFn, headerHeight, fontSize, backLabel);
+}
+
+bool renderViewHeader(std::string_view title, std::string_view backLabel) {
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    float availW = ImGui::GetContentRegionAvail().x;
+    float fontSize = ImGui::GetFontSize();
+    float headerH = Metrics::kHeaderHeight;
+
+    auto geom = calculateViewHeaderLayout(cursor, availW, title, headerH, fontSize, backLabel);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Position cursor for back button
+    ImGui::SetCursorScreenPos(geom.backButtonMin);
+    ImGui::PushStyleColor(ImGuiCol_Button, theme::Palette::kFrameBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::Palette::kFrameBgHover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::Palette::kFrameBgActive);
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::Palette::kText);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Metrics::kBackBtnRounding);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Metrics::kBackBtnPaddingX, Metrics::kBackBtnPaddingY));
+
+    std::string buttonId = std::string(backLabel) + "##back";
+    bool backClicked = ImGui::Button(buttonId.c_str(), ImVec2(geom.backButtonWidth, geom.backButtonHeight));
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+
+    // Draw Title text vertically aligned
+    dl->AddText(geom.titlePos, ImGui::GetColorU32(theme::Palette::kText), title.data(), title.data() + title.size());
+
+    // Draw separator line at header bottom
+    dl->AddLine(
+        ImVec2(geom.headerMin.x, geom.separatorY),
+        ImVec2(geom.headerMax.x, geom.separatorY),
+        ImGui::GetColorU32(theme::Palette::kBorder)
+    );
+
+    // Advance cursor past the header container
+    ImGui::SetCursorScreenPos(ImVec2(cursor.x, geom.separatorY + theme::Metrics::kItemSpacing.y));
+
+    return backClicked;
+}
+
 } // namespace fizz::ui

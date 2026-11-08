@@ -24,6 +24,7 @@
 #include "services/FontDiscovery.h"
 #include "services/Theme.h"
 #include "services/SearchUi.h"
+#include "services/ViewMode.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -132,12 +133,19 @@ int main() {
     auto lastInputTime = std::chrono::steady_clock::now();
     constexpr auto kIdleThreshold = std::chrono::milliseconds(500);
 
+    ViewModeStateMachine stateMachine(ViewMode::Search);
+    stateMachine.setSearchStatePointers(&lastQuery, &results, buf);
+    stateMachine.setOnCancelSearch([&]() {
+        selected = 0;
+        warningMsg.clear();
+    });
+
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
 
         if (g_IndexReloadedOnFocus) {
             g_IndexReloadedOnFocus = false;
-            if (!lastQuery.empty()) {
+            if (!lastQuery.empty() && stateMachine.getCurrentMode() == ViewMode::Search) {
                 searchPaths(lastQuery, results, kMaxHits);
                 selected = 0;
                 warningMsg.clear();
@@ -152,68 +160,148 @@ int main() {
         ImGui::SetNextWindowSize(io.DisplaySize);
         ImGui::Begin("fizz", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
-        // Search pill: integrated rounded pill with prompt glyph and placeholder hint
-        if (fizz::ui::renderSearchPill(buf, sizeof(buf), fizz::ui::kDefaultPlaceholderText)) {
-            std::string_view q(buf);
-            if (q != lastQuery) {
-                auto now = std::chrono::steady_clock::now();
-                bool wasIdle = lastQuery.empty() || (now - lastInputTime >= kIdleThreshold);
-                if (wasIdle) {
-                    reloadIndexIfModified();
+        // Global Escape handling: Settings/About -> Search without closing; Search -> Close application
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            if (stateMachine.handleEscape()) {
+                glfwSetWindowShouldClose(window, 1);
+            }
+        }
+
+        switch (stateMachine.getCurrentMode()) {
+        case ViewMode::Search: {
+            // Search pill: integrated rounded pill with prompt glyph and placeholder hint
+            if (fizz::ui::renderSearchPill(buf, sizeof(buf), fizz::ui::kDefaultPlaceholderText)) {
+                std::string_view q(buf);
+                if (q != lastQuery) {
+                    auto now = std::chrono::steady_clock::now();
+                    bool wasIdle = lastQuery.empty() || (now - lastInputTime >= kIdleThreshold);
+                    if (wasIdle) {
+                        reloadIndexIfModified();
+                    }
+                    lastInputTime = now;
+                    searchPaths(q, results, kMaxHits);
+                    lastQuery.assign(q);
+                    selected = 0;
+                    warningMsg.clear();
                 }
-                lastInputTime = now;
-                searchPaths(q, results, kMaxHits);
-                lastQuery.assign(q);
-                selected = 0;
-                warningMsg.clear();
             }
-        }
 
-        const int n = (int)results.size();
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) { ++selected; scrollToSel = true; warningMsg.clear(); }
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { --selected; scrollToSel = true; warningMsg.clear(); }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) glfwSetWindowShouldClose(window, 1);
+            const int n = (int)results.size();
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && selected + 1 < n) { ++selected; scrollToSel = true; warningMsg.clear(); }
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)   && selected > 0)     { --selected; scrollToSel = true; warningMsg.clear(); }
 
-        int chosen = -1;
-        bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-        if (enterPressed && n > 0) {
-            bool isUntrusted = isDesktopEntry(results[selected].path) && !isDesktopEntryTrusted(results[selected].path);
-            if (isUntrusted && !io.KeyCtrl) {
-                warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
-            } else {
-                chosen = selected;
+            // Shortcuts to open Settings / About
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Comma)) {
+                stateMachine.transitionTo(ViewMode::Settings);
+            } else if (ImGui::IsKeyPressed(ImGuiKey_F1)) {
+                stateMachine.transitionTo(ViewMode::About);
             }
-        }
 
-        auto footerLayout = fizz::ui::calculateFooterLayout(fizz::ui::Metrics::kFooterHeight, ImGui::GetStyle().ItemSpacing.y);
-        ImGui::BeginChild("results", {0, footerLayout.reservedChildHeight}, ImGuiChildFlags_Borders);
-        for (int i = 0; i < n; ++i) {
-            ImGui::PushID(i);
-            if (drawRow(results[i].path, results[i].execState, i == selected)) {
-                selected = i;
-                if (ImGui::IsMouseDoubleClicked(0)) {
-                    bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
+            int chosen = -1;
+            bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+            if (enterPressed) {
+                std::string_view q(buf);
+                if (q == "settings" || q == ":settings") {
+                    stateMachine.transitionTo(ViewMode::Settings);
+                } else if (q == "about" || q == ":about") {
+                    stateMachine.transitionTo(ViewMode::About);
+                } else if (n > 0) {
+                    bool isUntrusted = isDesktopEntry(results[selected].path) && !isDesktopEntryTrusted(results[selected].path);
                     if (isUntrusted && !io.KeyCtrl) {
                         warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
                     } else {
-                        chosen = i;
+                        chosen = selected;
                     }
                 }
             }
-            if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
-            ImGui::PopID();
-        }
-        if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
-        ImGui::EndChild();
 
-        // Pinned status footer: search hit count and keyboard navigation shortcuts
-        fizz::ui::renderStatusFooter(n, warningMsg);
+            auto footerLayout = fizz::ui::calculateFooterLayout(fizz::ui::Metrics::kFooterHeight, ImGui::GetStyle().ItemSpacing.y);
+            ImGui::BeginChild("results", {0, footerLayout.reservedChildHeight}, ImGuiChildFlags_Borders);
+            for (int i = 0; i < n; ++i) {
+                ImGui::PushID(i);
+                if (drawRow(results[i].path, results[i].execState, i == selected)) {
+                    selected = i;
+                    if (ImGui::IsMouseDoubleClicked(0)) {
+                        bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
+                        if (isUntrusted && !io.KeyCtrl) {
+                            warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
+                        } else {
+                            chosen = i;
+                        }
+                    }
+                }
+                if (i == selected && scrollToSel) { ImGui::SetScrollHereY(); scrollToSel = false; }
+                ImGui::PopID();
+            }
+            if (n == 0 && !lastQuery.empty()) ImGui::TextDisabled("no matches");
+            ImGui::EndChild();
+
+            // Pinned status footer: search hit count and keyboard navigation shortcuts
+            fizz::ui::renderStatusFooter(n, warningMsg);
+
+            if (chosen >= 0) {
+                launchTarget(results[chosen].path, results[chosen].execState, io.KeyShift);
+                glfwSetWindowShouldClose(window, 1);
+            }
+            break;
+        }
+
+        case ViewMode::Settings: {
+            if (fizz::ui::renderViewHeader("Settings")) {
+                stateMachine.transitionTo(ViewMode::Search);
+            }
+
+            ImGui::BeginChild("settings_container", {0, 0}, false);
+            ImGui::Spacing();
+            ImGui::TextColored(fizz::theme::Palette::kAccent, "Settings");
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::Text("Config Version: %d", config.config_version);
+            ImGui::Text("Theme: %s", config.theme.c_str());
+            ImGui::Text("Accent: %s", config.accent.c_str());
+            ImGui::Spacing();
+            ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
+            for (const auto& root : config.searchRoots) {
+                ImGui::BulletText("%s", root.c_str());
+            }
+            ImGui::Spacing();
+            ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
+            for (const auto& rule : config.ignoreRules) {
+                ImGui::BulletText("%s", rule.c_str());
+            }
+            ImGui::Spacing();
+            ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
+            ImGui::EndChild();
+            break;
+        }
+
+        case ViewMode::About: {
+            if (fizz::ui::renderViewHeader("About")) {
+                stateMachine.transitionTo(ViewMode::Search);
+            }
+
+            ImGui::BeginChild("about_container", {0, 0}, false);
+            ImGui::Spacing();
+            ImGui::TextColored(fizz::theme::Palette::kAccent, "Fizz Application Launcher");
+            ImGui::TextDisabled("v1.0.0");
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextWrapped("A fast, keyboard-driven desktop fuzzy file and application launcher for Linux.");
+            ImGui::Spacing();
+            ImGui::Text("Keyboard Navigation:");
+            ImGui::BulletText("↵ (Enter)        : Open file or launch application");
+            ImGui::BulletText("⇧↵ (Shift+Enter) : Reveal directory in file manager");
+            ImGui::BulletText("Esc              : Return to Search / Dismiss launcher");
+            ImGui::BulletText("Ctrl+,           : Open Settings view");
+            ImGui::BulletText("F1               : Open About view");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
+            ImGui::EndChild();
+            break;
+        }
+        }
+
         ImGui::End();
-
-        if (chosen >= 0) {
-            launchTarget(results[chosen].path, results[chosen].execState, io.KeyShift);
-            glfwSetWindowShouldClose(window, 1);
-        }
 
         int fbw, fbh;
         glfwGetFramebufferSize(window, &fbw, &fbh);   
