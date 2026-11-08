@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
+#include <cmath>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -228,6 +229,23 @@ bool resetToDefaultCachePath(FizzConfig& config,
     return true;
 }
 
+static void renderSpinner(float radius, float thickness, ImU32 color) {
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(radius * 2.0f, radius * 2.0f));
+
+    float time = static_cast<float>(ImGui::GetTime());
+    int num_segments = 24;
+    float start_angle = time * 6.0f;
+    float end_angle = start_angle + 1.5f * 3.14159265f;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (dl) {
+        dl->PathClear();
+        dl->PathArcTo(ImVec2(pos.x + radius, pos.y + radius), std::max(1.0f, radius - thickness * 0.5f), start_angle, end_angle, num_segments);
+        dl->PathStroke(color, false, thickness);
+    }
+}
+
 CacheTab::CacheTab() {
     std::memset(m_inputBuffer, 0, sizeof(m_inputBuffer));
 }
@@ -235,6 +253,56 @@ CacheTab::CacheTab() {
 CacheTab::CacheTab(const FizzConfig& config) {
     std::memset(m_inputBuffer, 0, sizeof(m_inputBuffer));
     syncWithConfig(config);
+}
+
+CacheTab::~CacheTab() {
+    m_stopRebuildWatcher = true;
+    if (m_rebuildThread.joinable()) {
+        m_rebuildThread.join();
+    }
+}
+
+CacheTab::CacheTab(CacheTab&& other) noexcept {
+    other.m_stopRebuildWatcher = true;
+    if (other.m_rebuildThread.joinable()) {
+        other.m_rebuildThread.join();
+    }
+    std::memcpy(m_inputBuffer, other.m_inputBuffer, sizeof(m_inputBuffer));
+    m_inputPath = std::move(other.m_inputPath);
+    m_lastSyncedConfigPath = std::move(other.m_lastSyncedConfigPath);
+    {
+        std::lock_guard<std::mutex> lock(other.m_statusMutex);
+        m_statusMessage = std::move(other.m_statusMessage);
+        m_statusIsError = other.m_statusIsError;
+    }
+    m_initialized = other.m_initialized;
+    m_rebuilding = other.m_rebuilding.load();
+    m_daemonClient = std::move(other.m_daemonClient);
+}
+
+CacheTab& CacheTab::operator=(CacheTab&& other) noexcept {
+    if (this != &other) {
+        m_stopRebuildWatcher = true;
+        if (m_rebuildThread.joinable()) {
+            m_rebuildThread.join();
+        }
+        other.m_stopRebuildWatcher = true;
+        if (other.m_rebuildThread.joinable()) {
+            other.m_rebuildThread.join();
+        }
+        std::memcpy(m_inputBuffer, other.m_inputBuffer, sizeof(m_inputBuffer));
+        m_inputPath = std::move(other.m_inputPath);
+        m_lastSyncedConfigPath = std::move(other.m_lastSyncedConfigPath);
+        {
+            std::lock_guard<std::mutex> lock(other.m_statusMutex);
+            m_statusMessage = std::move(other.m_statusMessage);
+            m_statusIsError = other.m_statusIsError;
+        }
+        m_initialized = other.m_initialized;
+        m_rebuilding = other.m_rebuilding.load();
+        m_daemonClient = std::move(other.m_daemonClient);
+    }
+    return *this;
 }
 
 void CacheTab::setInputPath(const std::string& path) {
@@ -250,10 +318,129 @@ void CacheTab::syncWithConfig(const FizzConfig& config) {
     }
 }
 
+bool CacheTab::isRebuilding() const {
+    return m_rebuilding.load();
+}
+
+bool CacheTab::isSpinnerActive() const {
+    return isRebuilding();
+}
+
+void CacheTab::setRebuilding(bool rebuilding) {
+    m_rebuilding = rebuilding;
+}
+
+void CacheTab::waitForRebuildCompletion(int timeoutMs) {
+    auto start = std::chrono::steady_clock::now();
+    while (m_rebuilding.load()) {
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() > timeoutMs) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (m_rebuildThread.joinable()) {
+        m_rebuildThread.join();
+    }
+}
+
+std::string CacheTab::getStatusMessage() const {
+    std::lock_guard<std::mutex> lock(m_statusMutex);
+    return m_statusMessage;
+}
+
+bool CacheTab::isStatusError() const {
+    std::lock_guard<std::mutex> lock(m_statusMutex);
+    return m_statusIsError;
+}
+
+void CacheTab::triggerRebuild(const FizzConfig& config) {
+    if (m_rebuilding.load()) {
+        return;
+    }
+
+    if (m_rebuildThread.joinable()) {
+        m_rebuildThread.join();
+    }
+
+    std::string activePath = config.binary_cache_path.empty() ? getBinaryCachePath() : config.binary_cache_path;
+    CacheDiagnostics initialDiag = getCacheDiagnostics(activePath);
+
+    if (m_daemonClient.isCooldownActive()) {
+        std::lock_guard<std::mutex> lock(m_statusMutex);
+        m_statusMessage = "Rebuild rate-limited: please wait before retrying.";
+        m_statusIsError = true;
+        return;
+    }
+
+    m_rebuilding = true;
+    m_stopRebuildWatcher = false;
+    {
+        std::lock_guard<std::mutex> lock(m_statusMutex);
+        m_statusMessage = "Rebuilding cache in background...";
+        m_statusIsError = false;
+    }
+
+    m_rebuildThread = std::thread([this, activePath, initialDiag]() {
+        DaemonTriggerStatus res = m_daemonClient.triggerRebuild();
+        if (res == DaemonTriggerStatus::CooldownIgnored) {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
+            m_statusMessage = "Rebuild rate-limited: please wait before retrying.";
+            m_statusIsError = true;
+            m_rebuilding = false;
+            return;
+        }
+
+        if (res == DaemonTriggerStatus::DaemonNotRunning || res == DaemonTriggerStatus::Failed) {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
+            m_statusMessage = "Failed to trigger rebuild: Index Daemon is not running and systemd fallback failed.";
+            m_statusIsError = true;
+            m_rebuilding = false;
+            return;
+        }
+
+        // Wait for newly published cache
+        auto start = std::chrono::steady_clock::now();
+        bool published = false;
+        while (!m_stopRebuildWatcher && (std::chrono::steady_clock::now() - start) < std::chrono::seconds(10)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            CacheDiagnostics curr = getCacheDiagnostics(activePath);
+            if ((!initialDiag.fileExists && curr.fileExists) ||
+                (curr.lastModified > initialDiag.lastModified) ||
+                (curr.fileSizeBytes != initialDiag.fileSizeBytes && curr.fileExists) ||
+                (curr.entryCount != initialDiag.entryCount && curr.fileExists)) {
+                published = true;
+                break;
+            }
+        }
+
+        // Re-read in-memory search cache so query results reflect newly indexed entries
+        loadIndexToMemory();
+
+        {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
+            m_rebuilding = false;
+            if (published) {
+                m_statusMessage = "Cache rebuild completed successfully.";
+                m_statusIsError = false;
+            } else {
+                m_statusMessage = (res == DaemonTriggerStatus::SuccessSignal)
+                    ? "Cache rebuild signal dispatched."
+                    : "Cache daemon restarted via systemd.";
+                m_statusIsError = false;
+            }
+        }
+    });
+}
+
 void CacheTab::render(FizzConfig& config) {
     syncWithConfig(config);
 
-    // Live cache diagnostics from disk
+    // Reap background worker thread if rebuild is done
+    if (!m_rebuilding.load() && m_rebuildThread.joinable()) {
+        m_rebuildThread.join();
+    }
+
+    // Live cache diagnostics from disk (refreshes indicators when new cache is published)
     CacheDiagnostics diag = getCacheDiagnostics(config.binary_cache_path);
 
     ImGui::Spacing();
@@ -267,6 +454,29 @@ void CacheTab::render(FizzConfig& config) {
     ImGui::Text("File Size: %s (%llu bytes)", diag.formattedSize.c_str(), static_cast<unsigned long long>(diag.fileSizeBytes));
     ImGui::Text("Indexed Entries: %zu paths", diag.entryCount);
     ImGui::Text("Last Modified: %s", diag.formattedTimestamp.c_str());
+
+    ImGui::Spacing();
+
+    // Rebuild Cache action button and active loading spinner
+    bool inProgress = isRebuilding();
+    if (inProgress) {
+        ImGui::BeginDisabled();
+        ImGui::Button("Rebuild Cache##action", {120.0f, 0});
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        renderSpinner(8.0f, 2.5f, ImGui::GetColorU32(fizz::theme::Palette::kAccent));
+        ImGui::SameLine();
+        ImGui::TextColored(fizz::theme::Palette::kAccent, "Rebuilding index in background...");
+    } else {
+        if (ImGui::Button("Rebuild Cache##action", {120.0f, 0})) {
+            triggerRebuild(config);
+        }
+        if (m_daemonClient.isCooldownActive()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(Cooldown: %.0fs)", std::ceil(m_daemonClient.getCooldownRemainingSeconds()));
+        }
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -293,32 +503,44 @@ void CacheTab::render(FizzConfig& config) {
     if (enterPressed || applyClicked) {
         std::string errMsg;
         if (applyCustomCachePath(m_inputPath, config, &errMsg)) {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
             m_statusMessage = "Binary cache path updated and saved successfully.";
             m_statusIsError = false;
             m_lastSyncedConfigPath = config.binary_cache_path;
         } else {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
             m_statusMessage = errMsg;
             m_statusIsError = true;
         }
     } else if (resetClicked) {
         std::string errMsg;
         if (resetToDefaultCachePath(config, &errMsg)) {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
             m_statusMessage = "Binary cache path reset to default and saved.";
             m_statusIsError = false;
             m_lastSyncedConfigPath = "";
             setInputPath("");
         } else {
+            std::lock_guard<std::mutex> lock(m_statusMutex);
             m_statusMessage = errMsg;
             m_statusIsError = true;
         }
     }
 
-    if (!m_statusMessage.empty()) {
+    std::string currentStatus;
+    bool isError = false;
+    {
+        std::lock_guard<std::mutex> lock(m_statusMutex);
+        currentStatus = m_statusMessage;
+        isError = m_statusIsError;
+    }
+
+    if (!currentStatus.empty()) {
         ImGui::Spacing();
-        if (m_statusIsError) {
-            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "⚠️ %s", m_statusMessage.c_str());
+        if (isError) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "⚠️ %s", currentStatus.c_str());
         } else {
-            ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "✓ %s", m_statusMessage.c_str());
+            ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "✓ %s", currentStatus.c_str());
         }
     }
 }

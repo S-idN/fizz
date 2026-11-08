@@ -20,6 +20,11 @@ void stopDaemon();
 void runIndexDaemon();
 void daemonRunner(); // alias for runIndexDaemon()
 
+// Sets / queries rebuild requested flag for the daemon loop
+void setRebuildRequested(bool requested = true);
+bool isRebuildRequested();
+void installDaemonSignalHandlers();
+
 // Acquires exclusive Index Daemon lock in the user runtime directory (or customRuntimeDir if provided).
 // Uses O_NOFOLLOW to prevent symlink traversal attacks. Returns file descriptor >= 0 on success, or -1 on failure.
 int acquireDaemonLock(const std::string& customRuntimeDir = "");
