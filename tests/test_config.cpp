@@ -44,6 +44,16 @@ void test_config_parser_defaults_and_missing_file() {
     CONFIG_TEST_ASSERT(config.searchRoots == defaultRoots);
     CONFIG_TEST_ASSERT(config.ignoreRules.empty());
     CONFIG_TEST_ASSERT(config.autoCloseOnUnfocus == true);
+    CONFIG_TEST_ASSERT(config.config_version == 1);
+    CONFIG_TEST_ASSERT(config.theme == "dark");
+    CONFIG_TEST_ASSERT(config.accent == "blue");
+    CONFIG_TEST_ASSERT(config.window_width == 750);
+    CONFIG_TEST_ASSERT(config.window_height == 480);
+    CONFIG_TEST_ASSERT(config.font_path == "");
+    CONFIG_TEST_ASSERT(config.font_size == 16.0f);
+    CONFIG_TEST_ASSERT(config.binary_cache_path == "");
+    CONFIG_TEST_ASSERT(config.view_state_grace_seconds == 5);
+    CONFIG_TEST_ASSERT(config.unrecognizedKeys.empty());
 
     // 4. Resetting config path override restores default
     setConfigPath("");
@@ -113,16 +123,18 @@ void test_config_parser_corrupt_and_unreadable() {
     CONFIG_TEST_ASSERT(config.searchRoots == defaultRoots);
     CONFIG_TEST_ASSERT(config.ignoreRules.empty());
 
-    // 1b. File with an unreadable/unrecognized option triggers clean fallback
-    fs::path unreadableOptFile = tempDir / "unreadable_opt.conf";
+    // 1b. File with an unrecognized option does NOT trigger fallback (permissive parsing)
+    fs::path permissiveOptFile = tempDir / "permissive_opt.conf";
     {
-        std::ofstream out(unreadableOptFile);
+        std::ofstream out(permissiveOptFile);
         out << "search_roots = /tmp/valid\n";
         out << "unknown_unreadable_setting = true\n";
     }
-    FizzConfig optConfig = loadConfig(unreadableOptFile.string());
-    CONFIG_TEST_ASSERT(optConfig.searchRoots == defaultRoots);
-    CONFIG_TEST_ASSERT(optConfig.ignoreRules.empty());
+    FizzConfig optConfig = loadConfig(permissiveOptFile.string());
+    CONFIG_TEST_ASSERT(optConfig.searchRoots.size() == 1 && optConfig.searchRoots[0] == "/tmp/valid");
+    CONFIG_TEST_ASSERT(optConfig.unrecognizedKeys.size() == 1);
+    CONFIG_TEST_ASSERT(optConfig.unrecognizedKeys[0].first == "unknown_unreadable_setting");
+    CONFIG_TEST_ASSERT(optConfig.unrecognizedKeys[0].second == "true");
 
     // 2. Binary / unreadable data
     fs::path binConf = tempDir / "binary.conf";
@@ -404,6 +416,244 @@ void test_user_runtime_dir_and_fallback_isolation() {
     std::cout << "[PASS] test_user_runtime_dir_and_fallback_isolation passed.\n";
 }
 
+void test_config_schema_version_and_defaults() {
+    std::cout << "[TEST] Running test_config_schema_version_and_defaults...\n";
+
+    // 1. Direct defaults() call has config_version = 1 and correct default field values
+    FizzConfig def = FizzConfig::defaults();
+    CONFIG_TEST_ASSERT(def.config_version == 1);
+    CONFIG_TEST_ASSERT(def.theme == "dark");
+    CONFIG_TEST_ASSERT(def.accent == "blue");
+    CONFIG_TEST_ASSERT(def.window_width == 750);
+    CONFIG_TEST_ASSERT(def.window_height == 480);
+    CONFIG_TEST_ASSERT(def.font_path.empty());
+    CONFIG_TEST_ASSERT(def.font_size == 16.0f);
+    CONFIG_TEST_ASSERT(def.binary_cache_path.empty());
+    CONFIG_TEST_ASSERT(def.view_state_grace_seconds == 5);
+    CONFIG_TEST_ASSERT(def.unrecognizedKeys.empty());
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_version";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    // 2. Loading existing file lacking config_version defaults config_version to 1
+    fs::path unversionedFile = tempDir / "unversioned.conf";
+    {
+        std::ofstream out(unversionedFile);
+        out << "search_roots = /usr/bin\n";
+        out << "theme = light\n";
+    }
+    FizzConfig unversionedCfg = loadConfig(unversionedFile.string());
+    CONFIG_TEST_ASSERT(unversionedCfg.config_version == 1);
+    CONFIG_TEST_ASSERT(unversionedCfg.theme == "light");
+
+    // 3. Loading file with explicit config_version preserves version
+    fs::path versionedFile = tempDir / "versioned.conf";
+    {
+        std::ofstream out(versionedFile);
+        out << "config_version = 2\n";
+        out << "theme = dark\n";
+    }
+    FizzConfig versionedCfg = loadConfig(versionedFile.string());
+    CONFIG_TEST_ASSERT(versionedCfg.config_version == 2);
+
+    // 4. Loading file with invalid/negative config_version falls back to 1
+    fs::path invalidVersionFile = tempDir / "invalid_version.conf";
+    {
+        std::ofstream out(invalidVersionFile);
+        out << "config_version = invalid_v1\n";
+    }
+    FizzConfig invalidVersionCfg = loadConfig(invalidVersionFile.string());
+    CONFIG_TEST_ASSERT(invalidVersionCfg.config_version == 1);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_schema_version_and_defaults passed.\n";
+}
+
+void test_config_bounded_fields_and_enum_fallbacks() {
+    std::cout << "[TEST] Running test_config_bounded_fields_and_enum_fallbacks...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_bounded";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    const char* home = std::getenv("HOME");
+    std::string expectedHome = home ? home : "";
+
+    // 1. Valid custom values
+    fs::path validFile = tempDir / "valid.conf";
+    {
+        std::ofstream out(validFile);
+        out << "theme = light\n";
+        out << "accent = emerald\n";
+        out << "window_width = 1000\n";
+        out << "window_height = 600\n";
+        out << "font_path = ~/fonts/custom.ttf\n";
+        out << "font_size = 18.5\n";
+        out << "binary_cache_path = ~/custom_cache.bin\n";
+        out << "view_state_grace_seconds = 10\n";
+    }
+    FizzConfig validCfg = loadConfig(validFile.string());
+    CONFIG_TEST_ASSERT(validCfg.theme == "light");
+    CONFIG_TEST_ASSERT(validCfg.accent == "emerald");
+    CONFIG_TEST_ASSERT(validCfg.window_width == 1000);
+    CONFIG_TEST_ASSERT(validCfg.window_height == 600);
+    CONFIG_TEST_ASSERT(validCfg.font_path == expectedHome + "/fonts/custom.ttf");
+    CONFIG_TEST_ASSERT(validCfg.font_size == 18.5f);
+    CONFIG_TEST_ASSERT(validCfg.binary_cache_path == expectedHome + "/custom_cache.bin");
+    CONFIG_TEST_ASSERT(validCfg.view_state_grace_seconds == 10);
+
+    // 2. Unrecognized theme enum falls back to "dark" without marking config unreadable
+    fs::path invalidThemeFile = tempDir / "invalid_theme.conf";
+    {
+        std::ofstream out(invalidThemeFile);
+        out << "theme = solarized_neon\n";
+        out << "window_width = 800\n";
+    }
+    FizzConfig invalidThemeCfg = loadConfig(invalidThemeFile.string());
+    CONFIG_TEST_ASSERT(invalidThemeCfg.theme == "dark");
+    CONFIG_TEST_ASSERT(invalidThemeCfg.window_width == 800);
+
+    // 3. Unrecognized accent enum falls back to "blue" without marking config unreadable
+    fs::path invalidAccentFile = tempDir / "invalid_accent.conf";
+    {
+        std::ofstream out(invalidAccentFile);
+        out << "accent = invalid_rainbow_color\n";
+        out << "window_height = 500\n";
+    }
+    FizzConfig invalidAccentCfg = loadConfig(invalidAccentFile.string());
+    CONFIG_TEST_ASSERT(invalidAccentCfg.accent == "blue");
+    CONFIG_TEST_ASSERT(invalidAccentCfg.window_height == 500);
+
+    // 4. Window width clamping (bounds: 500 to 1600)
+    fs::path widthClampFile = tempDir / "width_clamp.conf";
+    {
+        std::ofstream out(widthClampFile);
+        out << "window_width = 100\n"; // below min
+    }
+    FizzConfig widthClampCfg = loadConfig(widthClampFile.string());
+    CONFIG_TEST_ASSERT(widthClampCfg.window_width == 500);
+
+    {
+        std::ofstream out(widthClampFile);
+        out << "window_width = 5000\n"; // above max
+    }
+    widthClampCfg = loadConfig(widthClampFile.string());
+    CONFIG_TEST_ASSERT(widthClampCfg.window_width == 1600);
+
+    {
+        std::ofstream out(widthClampFile);
+        out << "window_width = not_a_number\n"; // invalid
+    }
+    widthClampCfg = loadConfig(widthClampFile.string());
+    CONFIG_TEST_ASSERT(widthClampCfg.window_width == 750);
+
+    // 5. Window height clamping (bounds: 320 to 1200)
+    fs::path heightClampFile = tempDir / "height_clamp.conf";
+    {
+        std::ofstream out(heightClampFile);
+        out << "window_height = 50\n"; // below min
+    }
+    FizzConfig heightClampCfg = loadConfig(heightClampFile.string());
+    CONFIG_TEST_ASSERT(heightClampCfg.window_height == 320);
+
+    {
+        std::ofstream out(heightClampFile);
+        out << "window_height = 9999\n"; // above max
+    }
+    heightClampCfg = loadConfig(heightClampFile.string());
+    CONFIG_TEST_ASSERT(heightClampCfg.window_height == 1200);
+
+    {
+        std::ofstream out(heightClampFile);
+        out << "window_height = not_a_number\n"; // invalid
+    }
+    heightClampCfg = loadConfig(heightClampFile.string());
+    CONFIG_TEST_ASSERT(heightClampCfg.window_height == 480);
+
+    // 6. Font size fallback on non-positive / invalid
+    fs::path fontInvalidFile = tempDir / "font_invalid.conf";
+    {
+        std::ofstream out(fontInvalidFile);
+        out << "font_size = -5.0\n";
+    }
+    FizzConfig fontInvalidCfg = loadConfig(fontInvalidFile.string());
+    CONFIG_TEST_ASSERT(fontInvalidCfg.font_size == 16.0f);
+
+    {
+        std::ofstream out(fontInvalidFile);
+        out << "font_size = huge_size\n";
+    }
+    fontInvalidCfg = loadConfig(fontInvalidFile.string());
+    CONFIG_TEST_ASSERT(fontInvalidCfg.font_size == 16.0f);
+
+    // 7. View state grace seconds clamping (bounds: 1 to 15, default 5)
+    fs::path graceClampFile = tempDir / "grace_clamp.conf";
+    {
+        std::ofstream out(graceClampFile);
+        out << "view_state_grace_seconds = 0\n"; // below min 1
+    }
+    FizzConfig graceClampCfg = loadConfig(graceClampFile.string());
+    CONFIG_TEST_ASSERT(graceClampCfg.view_state_grace_seconds == 1);
+
+    {
+        std::ofstream out(graceClampFile);
+        out << "view_state_grace_seconds = 100\n"; // above max 15
+    }
+    graceClampCfg = loadConfig(graceClampFile.string());
+    CONFIG_TEST_ASSERT(graceClampCfg.view_state_grace_seconds == 15);
+
+    {
+        std::ofstream out(graceClampFile);
+        out << "view_state_grace_seconds = invalid_number\n";
+    }
+    graceClampCfg = loadConfig(graceClampFile.string());
+    CONFIG_TEST_ASSERT(graceClampCfg.view_state_grace_seconds == 5);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_bounded_fields_and_enum_fallbacks passed.\n";
+}
+
+void test_config_permissive_parsing_unrecognized_keys() {
+    std::cout << "[TEST] Running test_config_permissive_parsing_unrecognized_keys...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_permissive";
+    std::error_code ec;
+    fs::create_directories(tempDir, ec);
+
+    fs::path confFile = tempDir / "future_config.conf";
+    {
+        std::ofstream out(confFile);
+        out << "# Config with recognized and forward-compatible unrecognized keys\n";
+        out << "theme = light\n";
+        out << "window_width = 850\n";
+        out << "experimental_ai_ranking = true\n";
+        out << "plugin_path = /usr/lib/fizz/plugins\n";
+        out << "CustomOption = With Custom Value\n";
+        out << "auto_close_on_unfocus = false\n";
+    }
+
+    FizzConfig cfg = loadConfig(confFile.string());
+
+    // Recognized keys correctly parsed
+    CONFIG_TEST_ASSERT(cfg.theme == "light");
+    CONFIG_TEST_ASSERT(cfg.window_width == 850);
+    CONFIG_TEST_ASSERT(cfg.autoCloseOnUnfocus == false);
+    CONFIG_TEST_ASSERT(cfg.config_version == 1);
+
+    // Unrecognized keys preserved for round-trip serialization
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys.size() == 3);
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[0].first == "experimental_ai_ranking");
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[0].second == "true");
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[1].first == "plugin_path");
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[1].second == "/usr/lib/fizz/plugins");
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[2].first == "CustomOption");
+    CONFIG_TEST_ASSERT(cfg.unrecognizedKeys[2].second == "With Custom Value");
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_permissive_parsing_unrecognized_keys passed.\n";
+}
+
 void run_config_tests() {
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
@@ -412,4 +662,7 @@ void run_config_tests() {
     test_config_custom_roots_and_ignores_traversal();
     test_custom_ignore_rules_matching();
     test_user_runtime_dir_and_fallback_isolation();
+    test_config_schema_version_and_defaults();
+    test_config_bounded_fields_and_enum_fallbacks();
+    test_config_permissive_parsing_unrecognized_keys();
 }

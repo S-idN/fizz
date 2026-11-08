@@ -151,7 +151,9 @@ void setConfigPath(const std::string& path) {
 }
 
 FizzConfig FizzConfig::defaults() {
-    return FizzConfig{ getDefaultSearchRoots(true), {}, true };
+    FizzConfig cfg;
+    cfg.searchRoots = getDefaultSearchRoots(true);
+    return cfg;
 }
 
 FizzConfig loadConfig(const std::string& configPath) {
@@ -187,6 +189,11 @@ FizzConfig loadConfig(const std::string& configPath) {
         std::string key = trim(trimmed.substr(0, eqPos));
         std::string val = trim(trimmed.substr(eqPos + 1));
 
+        if (key.empty()) {
+            unreadable = true;
+            break;
+        }
+
         std::string lowerKey = key;
         std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
                        [](unsigned char c) { return std::tolower(c); });
@@ -205,13 +212,110 @@ FizzConfig loadConfig(const std::string& configPath) {
             } else if (lowerVal == "false" || lowerVal == "0") {
                 config.autoCloseOnUnfocus = false;
             } else {
-                unreadable = true;
-                break;
+                config.autoCloseOnUnfocus = true;
+            }
+        } else if (lowerKey == "config_version") {
+            std::string vStr = stripQuotes(val);
+            try {
+                size_t idx = 0;
+                int v = std::stoi(vStr, &idx);
+                if (idx == vStr.size() && v >= 1) {
+                    config.config_version = v;
+                } else {
+                    config.config_version = 1;
+                }
+            } catch (...) {
+                config.config_version = 1;
+            }
+        } else if (lowerKey == "theme") {
+            std::string t = stripQuotes(val);
+            std::transform(t.begin(), t.end(), t.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (t == "dark" || t == "light") {
+                config.theme = t;
+            } else {
+                config.theme = "dark";
+            }
+        } else if (lowerKey == "accent") {
+            std::string a = stripQuotes(val);
+            std::transform(a.begin(), a.end(), a.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (a == "blue" || a == "green" || a == "emerald" || a == "purple" ||
+                a == "amber" || a == "orange" || a == "red" || a == "crimson" ||
+                a == "teal" || a == "pink") {
+                config.accent = a;
+            } else {
+                config.accent = "blue";
+            }
+        } else if (lowerKey == "window_width") {
+            std::string wStr = stripQuotes(val);
+            try {
+                size_t idx = 0;
+                int w = std::stoi(wStr, &idx);
+                if (idx == wStr.size()) {
+                    config.window_width = std::clamp(w, 500, 1600);
+                } else {
+                    config.window_width = 750;
+                }
+            } catch (...) {
+                config.window_width = 750;
+            }
+        } else if (lowerKey == "window_height") {
+            std::string hStr = stripQuotes(val);
+            try {
+                size_t idx = 0;
+                int h = std::stoi(hStr, &idx);
+                if (idx == hStr.size()) {
+                    config.window_height = std::clamp(h, 320, 1200);
+                } else {
+                    config.window_height = 480;
+                }
+            } catch (...) {
+                config.window_height = 480;
+            }
+        } else if (lowerKey == "font_path") {
+            std::string fp = stripQuotes(val);
+            if (!fp.empty()) {
+                config.font_path = normalizePath(fp);
+            } else {
+                config.font_path = "";
+            }
+        } else if (lowerKey == "font_size") {
+            std::string fsStr = stripQuotes(val);
+            try {
+                size_t idx = 0;
+                float sz = std::stof(fsStr, &idx);
+                if (idx == fsStr.size() && sz > 0.0f) {
+                    config.font_size = sz;
+                } else {
+                    config.font_size = 16.0f;
+                }
+            } catch (...) {
+                config.font_size = 16.0f;
+            }
+        } else if (lowerKey == "binary_cache_path") {
+            std::string cp = stripQuotes(val);
+            if (!cp.empty()) {
+                config.binary_cache_path = normalizePath(cp);
+            } else {
+                config.binary_cache_path = "";
+            }
+        } else if (lowerKey == "view_state_grace_seconds") {
+            std::string gsStr = stripQuotes(val);
+            try {
+                size_t idx = 0;
+                int gs = std::stoi(gsStr, &idx);
+                if (idx == gsStr.size()) {
+                    config.view_state_grace_seconds = std::clamp(gs, 1, 15);
+                } else {
+                    config.view_state_grace_seconds = 5;
+                }
+            } catch (...) {
+                config.view_state_grace_seconds = 5;
             }
         } else {
-            // Unreadable or unknown option
-            unreadable = true;
-            break;
+            // Permissive: unrecognized keys are retained for round-trip preservation
+            config.unrecognizedKeys.push_back({key, stripQuotes(val)});
         }
     }
 
