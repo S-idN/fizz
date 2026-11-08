@@ -25,6 +25,7 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
+#include "services/GeneralTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -140,6 +141,20 @@ int main() {
         warningMsg.clear();
     });
 
+    GeneralTab generalTab;
+    generalTab.setOnConfigChanged([&](const FizzConfig& updatedCfg) {
+        focusTracker.setAutoCloseOnUnfocus(updatedCfg.autoCloseOnUnfocus);
+    });
+    generalTab.setOnReset([&](const FizzConfig& defaultCfg) {
+        focusTracker.setAutoCloseOnUnfocus(defaultCfg.autoCloseOnUnfocus);
+        fizz::theme::applyTheme(ImGui::GetStyle());
+    });
+    stateMachine.setOnModeChange([&](ViewMode oldMode, ViewMode newMode) {
+        if (oldMode == ViewMode::Settings) {
+            generalTab.flushPendingSave(config);
+        }
+    });
+
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
 
@@ -248,26 +263,17 @@ int main() {
 
         case ViewMode::Settings: {
             if (fizz::ui::renderViewHeader("Settings")) {
+                generalTab.flushPendingSave(config);
                 stateMachine.transitionTo(ViewMode::Search);
             }
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
-            ImGui::Spacing();
-            ImGui::TextColored(fizz::theme::Palette::kAccent, "Settings");
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::Text("Config Version: %d", config.config_version);
-            ImGui::Text("Theme: %s", config.theme.c_str());
-            ImGui::Text("Accent: %s", config.accent.c_str());
-            ImGui::Spacing();
-            ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
-            for (const auto& root : config.searchRoots) {
-                ImGui::BulletText("%s", root.c_str());
-            }
-            ImGui::Spacing();
-            ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
-            for (const auto& rule : config.ignoreRules) {
-                ImGui::BulletText("%s", rule.c_str());
+            if (ImGui::BeginTabBar("settings_tab_bar")) {
+                if (ImGui::BeginTabItem("General")) {
+                    generalTab.render(config);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
             ImGui::Spacing();
             ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
@@ -312,6 +318,8 @@ int main() {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
     }
+
+    generalTab.flushPendingSave(config);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

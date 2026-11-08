@@ -6,6 +6,7 @@ public:
 
     bool isArmed() const;
     bool autoCloseOnUnfocus() const;
+    void setAutoCloseOnUnfocus(bool enabled);
 
     // Handles window focus change events (e.g. from glfwSetWindowFocusCallback).
     // Returns true if this focus transition warrants dismissing/closing the window.
