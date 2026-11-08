@@ -30,6 +30,7 @@
 #include "services/BuiltinActions.h"
 #include "services/AppearanceTab.h"
 #include "services/IndexingTab.h"
+#include "services/GeneralTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -156,6 +157,19 @@ int main() {
 
     fizz::CacheTab cacheTab(config);
     fizz::IndexingTab indexingTab;
+    fizz::GeneralTab generalTab;
+    generalTab.setOnConfigChanged([&](const FizzConfig& updatedCfg) {
+        focusTracker.setAutoCloseOnUnfocus(updatedCfg.autoCloseOnUnfocus);
+    });
+    generalTab.setOnReset([&](const FizzConfig& defaultCfg) {
+        focusTracker.setAutoCloseOnUnfocus(defaultCfg.autoCloseOnUnfocus);
+        fizz::theme::applyTheme(ImGui::GetStyle());
+    });
+    stateMachine.setOnModeChange([&](ViewMode oldMode, ViewMode newMode) {
+        if (oldMode == ViewMode::Settings) {
+            generalTab.flushPendingSave(config);
+        }
+    });
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -266,6 +280,7 @@ int main() {
 
         case ViewMode::Settings: {
             if (fizz::ui::renderViewHeader("Settings")) {
+                generalTab.flushPendingSave(config);
                 stateMachine.transitionTo(ViewMode::Search);
             }
 
@@ -287,23 +302,7 @@ int main() {
                 }
 
                 if (ImGui::BeginTabItem("General")) {
-                    ImGui::Spacing();
-                    ImGui::TextColored(fizz::theme::getActiveAccent(), "General Settings");
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    ImGui::Text("Config Version: %d", config.config_version);
-                    ImGui::Text("Theme: %s", config.theme.c_str());
-                    ImGui::Text("Accent: %s", config.accent.c_str());
-                    ImGui::Spacing();
-                    ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
-                    for (const auto& root : config.searchRoots) {
-                        ImGui::BulletText("%s", root.c_str());
-                    }
-                    ImGui::Spacing();
-                    ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
-                    for (const auto& rule : config.ignoreRules) {
-                        ImGui::BulletText("%s", rule.c_str());
-                    }
+                    generalTab.render(config);
                     ImGui::EndTabItem();
                 }
 
@@ -354,6 +353,8 @@ int main() {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
     }
+
+    generalTab.flushPendingSave(config);
 
     ViewMode exitMode = stateMachine.getCurrentMode();
     if (exitMode == ViewMode::Settings || exitMode == ViewMode::About) {
