@@ -14,6 +14,7 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
 set(SERVICES_SOURCES
+    services/AppearanceTab.cpp
     services/AppLauncher.cpp
     services/Config.cpp
     services/FileSearch.cpp
@@ -84,6 +85,8 @@ add_executable(fizz_tests
     tests/test_search_ui.cpp
     tests/test_file_cache_builder.cpp
     tests/test_view_mode.cpp
+    tests/test_appearance_tab.cpp
+    services/AppearanceTab.cpp
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp

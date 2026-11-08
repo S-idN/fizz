@@ -101,7 +101,7 @@ CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
         if (!isDesktopEntryTrusted(path)) {
             return {"untrusted-app", theme::Palette::kAmber};
         }
-        return {"app", theme::Palette::kAccent};
+        return {"app", theme::getActiveAccent()};
     }
 
     struct CategoryMapping {
@@ -184,11 +184,11 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder, b
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // Draw pill background and border
-    dl->AddRectFilled(geom.pillMin, geom.pillMax, ImGui::GetColorU32(theme::Palette::kFrameBg), geom.rounding);
-    dl->AddRect(geom.pillMin, geom.pillMax, ImGui::GetColorU32(theme::Palette::kBorder), geom.rounding);
+    dl->AddRectFilled(geom.pillMin, geom.pillMax, ImGui::GetColorU32(ImGuiCol_FrameBg), geom.rounding);
+    dl->AddRect(geom.pillMin, geom.pillMax, ImGui::GetColorU32(ImGuiCol_Border), geom.rounding);
 
-    // Draw prominent prompt indicator in Adwaita blue accent
-    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::Palette::kAccent), ">");
+    // Draw prominent prompt indicator in active accent
+    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::getActiveAccent()), ">");
 
     // Position and render InputTextWithHint inside the pill container
     ImGui::SetCursorScreenPos(geom.inputPos);
@@ -225,7 +225,7 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
     dl->AddLine(
         ImVec2(cursor.x, cursor.y),
         ImVec2(cursor.x + availW, cursor.y),
-        ImGui::GetColorU32(theme::Palette::kBorder)
+        ImGui::GetColorU32(ImGuiCol_Border)
     );
 
     float centerY = cursor.y + (footerH - ImGui::GetFontSize()) * 0.5f + 2.0f;
@@ -237,7 +237,7 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
     } else {
         std::string hitsText = formatHitCount(hitCount);
         ImVec2 hitsPos = {cursor.x + 4.0f, centerY};
-        dl->AddText(hitsPos, ImGui::GetColorU32(theme::Palette::kDim), hitsText.c_str());
+        dl->AddText(hitsPos, ImGui::GetColorU32(ImGuiCol_TextDisabled), hitsText.c_str());
     }
 
     // Keyboard navigation shortcuts formatted legibly on right
@@ -276,17 +276,17 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
         // Key badge background & subtle border
         ImVec2 bMin = {curX, badgeY};
         ImVec2 bMax = {curX + m.badgeW, badgeY + badgeH};
-        dl->AddRectFilled(bMin, bMax, ImGui::GetColorU32(theme::Palette::kFrameBg), 4.0f);
-        dl->AddRect(bMin, bMax, ImGui::GetColorU32(theme::Palette::kBorder), 4.0f);
+        dl->AddRectFilled(bMin, bMax, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+        dl->AddRect(bMin, bMax, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
 
         // Key indicator text
         ImVec2 keyTextPos = {curX + badgePadX, centerY};
-        dl->AddText(keyTextPos, ImGui::GetColorU32(theme::Palette::kText), item.key.data(), item.key.data() + item.key.size());
+        dl->AddText(keyTextPos, ImGui::GetColorU32(ImGuiCol_Text), item.key.data(), item.key.data() + item.key.size());
         curX += m.badgeW + keyLabelGap;
 
         // Action label
         ImVec2 labelPos = {curX, centerY};
-        dl->AddText(labelPos, ImGui::GetColorU32(theme::Palette::kDim), item.action.data(), item.action.data() + item.action.size());
+        dl->AddText(labelPos, ImGui::GetColorU32(ImGuiCol_TextDisabled), item.action.data(), item.action.data() + item.action.size());
         curX += m.labelW + itemGap;
     }
 
@@ -316,10 +316,10 @@ bool renderViewHeader(std::string_view title, std::string_view backLabel) {
 
     // Position cursor for back button
     ImGui::SetCursorScreenPos(geom.backButtonMin);
-    ImGui::PushStyleColor(ImGuiCol_Button, theme::Palette::kFrameBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::Palette::kFrameBgHover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::Palette::kFrameBgActive);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::Palette::kText);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Metrics::kBackBtnRounding);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Metrics::kBackBtnPaddingX, Metrics::kBackBtnPaddingY));
 
@@ -330,13 +330,13 @@ bool renderViewHeader(std::string_view title, std::string_view backLabel) {
     ImGui::PopStyleColor(4);
 
     // Draw Title text vertically aligned
-    dl->AddText(geom.titlePos, ImGui::GetColorU32(theme::Palette::kText), title.data(), title.data() + title.size());
+    dl->AddText(geom.titlePos, ImGui::GetColorU32(ImGuiCol_Text), title.data(), title.data() + title.size());
 
     // Draw separator line at header bottom
     dl->AddLine(
         ImVec2(geom.headerMin.x, geom.separatorY),
         ImVec2(geom.headerMax.x, geom.separatorY),
-        ImGui::GetColorU32(theme::Palette::kBorder)
+        ImGui::GetColorU32(ImGuiCol_Border)
     );
 
     // Advance cursor past the header container
