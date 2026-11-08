@@ -59,3 +59,69 @@ std::string resolveSystemFont(const std::string& sysRoot) {
 
     return "";
 }
+
+struct FontGroup {
+    const char* familyName;
+    std::vector<const char*> relativePaths;
+};
+
+static const FontGroup kFontGroups[] = {
+    {"Adwaita Sans", {
+        "usr/share/fonts/adwaita-sans-fonts/AdwaitaSans-Regular.ttf",
+        "usr/share/fonts/adwaita-sans/AdwaitaSans-Regular.ttf",
+        "usr/share/fonts/truetype/adwaita/AdwaitaSans-Regular.ttf"
+    }},
+    {"Cantarell", {
+        "usr/share/fonts/abattis-cantarell-fonts/Cantarell-Regular.otf",
+        "usr/share/fonts/cantarell/Cantarell-VF.otf",
+        "usr/share/fonts/cantarell/Cantarell-Regular.otf",
+        "usr/share/fonts/opentype/cantarell/Cantarell-VF.otf",
+        "usr/share/fonts/opentype/cantarell/Cantarell-Regular.otf",
+        "usr/share/fonts/truetype/cantarell/Cantarell-Regular.ttf"
+    }},
+    {"Google Sans", {
+        "usr/share/fonts/google-sans/GoogleSans-Regular.ttf",
+        "usr/share/fonts/truetype/google-sans/GoogleSans-Regular.ttf"
+    }},
+    {"DejaVu Sans", {
+        "usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "usr/share/fonts/TTF/DejaVuSans.ttf"
+    }},
+    {"JetBrains Mono", {
+        "usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-Regular.ttf",
+        "usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Regular.ttf",
+        "usr/share/fonts/TTF/JetBrainsMono-Regular.ttf",
+        "usr/share/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
+    }}
+};
+
+std::vector<DiscoveredFont> getDiscoveredSystemFonts(const std::string& sysRoot) {
+    std::vector<DiscoveredFont> result;
+    result.reserve(1 + sizeof(kFontGroups) / sizeof(kFontGroups[0]));
+
+    // 1. System Default option
+    result.push_back({"System Default (Auto-detect)", "", true});
+
+    fs::path base = sysRoot.empty() ? fs::path("/") : fs::path(sysRoot);
+
+    for (const auto& grp : kFontGroups) {
+        DiscoveredFont df;
+        df.familyName = grp.familyName;
+        df.available = false;
+        df.path = "";
+
+        for (const char* rel : grp.relativePaths) {
+            fs::path p = base / rel;
+            std::string normalized = p.lexically_normal().string();
+            if (access(normalized.c_str(), R_OK) == 0) {
+                df.path = normalized;
+                df.available = true;
+                break;
+            }
+        }
+        result.push_back(std::move(df));
+    }
+
+    return result;
+}

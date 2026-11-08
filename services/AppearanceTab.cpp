@@ -1,8 +1,155 @@
 #include "AppearanceTab.h"
+#include "FontDiscovery.h"
+#include "SearchUi.h"
+#include "imgui_internal.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstring>
+#include <unistd.h>
 
 namespace fizz::ui {
+
+static std::function<void(int, int)> s_globalWindowResizeCallback = nullptr;
+static std::function<void(const std::string&, float)> s_globalFontRebuildCallback = nullptr;
+
+int clampWindowWidth(int width) {
+    return std::clamp(width, kMinWidth, kMaxWidth);
+}
+
+int clampWindowHeight(int height) {
+    return std::clamp(height, kMinHeight, kMaxHeight);
+}
+
+float clampFontSize(float fontSize) {
+    return std::clamp(fontSize, kMinFontSize, kMaxFontSize);
+}
+
+void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
+    s_globalWindowResizeCallback = std::move(cb);
+}
+
+void setFontRebuildCallback(std::function<void(const std::string& fontPath, float fontSize)> cb) {
+    s_globalFontRebuildCallback = std::move(cb);
+}
+
+bool setWindowSize(FizzConfig& config, int width, int height,
+                   const std::function<void(int, int)>& onResize) {
+    int clampedW = clampWindowWidth(width);
+    int clampedH = clampWindowHeight(height);
+
+    bool changed = (config.window_width != clampedW || config.window_height != clampedH);
+    if (!changed) {
+        return false;
+    }
+
+    config.window_width = clampedW;
+    config.window_height = clampedH;
+
+    if (onResize) {
+        onResize(clampedW, clampedH);
+    } else if (s_globalWindowResizeCallback) {
+        s_globalWindowResizeCallback(clampedW, clampedH);
+    }
+
+    saveConfig(config);
+    return true;
+}
+
+bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
+                      const std::function<void()>& onGpuTextureReload,
+                      ImFontAtlas* atlas) {
+    if (!atlas) {
+        if (!ImGui::GetCurrentContext()) {
+            return false;
+        }
+        atlas = ImGui::GetIO().Fonts;
+    }
+    if (!atlas) {
+        return false;
+    }
+
+    float clampedSize = clampFontSize(fontSize);
+
+    // Save and temporarily unlock atlas if locked by ImGui frame
+    bool wasLocked = atlas->Locked;
+    atlas->Locked = false;
+
+    atlas->Clear();
+
+    std::string resolved = fontPath.empty() ? resolveSystemFont() : fontPath;
+    ImFont* font = nullptr;
+
+    if (!resolved.empty() && access(resolved.c_str(), R_OK) == 0) {
+        ImFontConfig cfg;
+        cfg.Flags |= ImFontFlags_NoLoadError;
+        font = atlas->AddFontFromFileTTF(resolved.c_str(), clampedSize, &cfg, fizz::ui::getUiGlyphRanges());
+    }
+
+    if (!font) {
+        font = atlas->AddFontDefault();
+    }
+
+    atlas->Build();
+    atlas->Locked = wasLocked;
+
+    if (ImGui::GetCurrentContext()) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.FontDefault = font;
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        g.Font = font;
+        if (font) {
+            g.FontSize = font->LegacySize > 0.0f ? font->LegacySize : clampedSize;
+        }
+    }
+
+    if (onGpuTextureReload) {
+        onGpuTextureReload();
+    }
+
+    return true;
+}
+
+bool setFontSize(FizzConfig& config, float fontSize,
+                 const std::function<void(const std::string&, float)>& onFontRebuild) {
+    float clamped = clampFontSize(fontSize);
+    if (std::fabs(config.font_size - clamped) < 0.01f) {
+        return false;
+    }
+
+    config.font_size = clamped;
+
+    if (onFontRebuild) {
+        onFontRebuild(config.font_path, clamped);
+    } else if (s_globalFontRebuildCallback) {
+        s_globalFontRebuildCallback(config.font_path, clamped);
+    } else {
+        rebuildFontAtlas(config.font_path, clamped);
+    }
+
+    saveConfig(config);
+    return true;
+}
+
+bool setFontPath(FizzConfig& config, const std::string& fontPath,
+                 const std::function<void(const std::string&, float)>& onFontRebuild) {
+    if (config.font_path == fontPath) {
+        return false;
+    }
+
+    config.font_path = fontPath;
+
+    if (onFontRebuild) {
+        onFontRebuild(config.font_path, config.font_size);
+    } else if (s_globalFontRebuildCallback) {
+        s_globalFontRebuildCallback(config.font_path, config.font_size);
+    } else {
+        rebuildFontAtlas(config.font_path, config.font_size);
+    }
+
+    saveConfig(config);
+    return true;
+}
 
 static std::string toLower(std::string_view sv) {
     std::string s(sv);
@@ -84,7 +231,8 @@ bool selectAccent(FizzConfig& config, std::string_view accentId, ImGuiStyle* sty
     return changed;
 }
 
-bool renderAppearanceTab(FizzConfig& config) {
+bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callbacks) {
+    (void)callbacks;
     bool modified = false;
 
     ImGui::Spacing();
@@ -170,9 +318,142 @@ bool renderAppearanceTab(FizzConfig& config) {
     ImGui::Separator();
     ImGui::Spacing();
 
+    // 3. Window Geometry section
+    ImGui::TextColored(theme::getActiveAccent(), "Window Geometry");
+    ImGui::Spacing();
+
+    int winWidth = config.window_width;
+    int winHeight = config.window_height;
+
+    ImGui::SetNextItemWidth(300.0f);
+    if (ImGui::SliderInt("Window Width##win_w", &winWidth, kMinWidth, kMaxWidth, "%d px")) {
+        if (setWindowSize(config, winWidth, config.window_height, callbacks.onWindowResize)) {
+            modified = true;
+        }
+    }
+
+    ImGui::SetNextItemWidth(300.0f);
+    if (ImGui::SliderInt("Window Height##win_h", &winHeight, kMinHeight, kMaxHeight, "%d px")) {
+        if (setWindowSize(config, config.window_width, winHeight, callbacks.onWindowResize)) {
+            modified = true;
+        }
+    }
+
+    ImGui::Spacing();
+    if (ImGui::SmallButton("Default (750 x 480)##preset_default")) {
+        if (setWindowSize(config, 750, 480, callbacks.onWindowResize)) {
+            modified = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Compact (600 x 400)##preset_compact")) {
+        if (setWindowSize(config, 600, 400, callbacks.onWindowResize)) {
+            modified = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Large (1000 x 650)##preset_large")) {
+        if (setWindowSize(config, 1000, 650, callbacks.onWindowResize)) {
+            modified = true;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Window size clamped between 500x320 and 1600x1200. Window resizes live.");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // 4. Typography & Font section
+    ImGui::TextColored(theme::getActiveAccent(), "Typography & Font");
+    ImGui::Spacing();
+
+    float fontSize = config.font_size;
+    ImGui::SetNextItemWidth(300.0f);
+    if (ImGui::SliderFloat("Font Size##font_sz", &fontSize, kMinFontSize, kMaxFontSize, "%.1f px")) {
+        if (setFontSize(config, fontSize, callbacks.onFontRebuild)) {
+            modified = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset (16px)##reset_font_sz")) {
+        if (setFontSize(config, kDefaultFontSize, callbacks.onFontRebuild)) {
+            modified = true;
+        }
+    }
+
+    const auto systemFonts = getDiscoveredSystemFonts();
+    std::string currentFontLabel = "Custom Font";
+    if (config.font_path.empty()) {
+        currentFontLabel = "System Default (Auto-detect)";
+    } else {
+        for (const auto& sf : systemFonts) {
+            if (sf.path == config.font_path) {
+                currentFontLabel = sf.familyName;
+                break;
+            }
+        }
+    }
+
+    ImGui::SetNextItemWidth(300.0f);
+    if (ImGui::BeginCombo("Font Family##font_family", currentFontLabel.c_str())) {
+        for (const auto& sf : systemFonts) {
+            bool isSelected = (config.font_path == sf.path);
+            std::string itemLabel = sf.familyName;
+            if (!sf.available && !sf.path.empty()) {
+                itemLabel += " (not found)";
+            }
+            if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
+                if (setFontPath(config, sf.path, callbacks.onFontRebuild)) {
+                    modified = true;
+                }
+            }
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    static char s_fontPathBuf[512] = "";
+    if (!ImGui::IsItemActive()) {
+        std::strncpy(s_fontPathBuf, config.font_path.c_str(), sizeof(s_fontPathBuf) - 1);
+        s_fontPathBuf[sizeof(s_fontPathBuf) - 1] = '\0';
+    }
+
+    ImGui::SetNextItemWidth(380.0f);
+    if (ImGui::InputTextWithHint("Font Path##custom_font_path", "Path to .ttf or .otf file (empty for default)", s_fontPathBuf, sizeof(s_fontPathBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
+            modified = true;
+        }
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
+            modified = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear##clear_font_path")) {
+        s_fontPathBuf[0] = '\0';
+        if (setFontPath(config, "", callbacks.onFontRebuild)) {
+            modified = true;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Select standard system fonts or configure custom TTF/OTF path. Dynamically rebuilds font atlas.");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // 5. Status / Summary
     ImGui::Text("Current Theme: %s", (config.theme == "light" ? "Light" : "Dark"));
     ImGui::SameLine(180.0f);
     ImGui::Text("Current Accent: %s", config.accent.c_str());
+    ImGui::Text("Window Size: %d x %d px", config.window_width, config.window_height);
+    ImGui::SameLine(240.0f);
+    std::string fontDisplay = config.font_path.empty() ? "System Default" : config.font_path;
+    ImGui::Text("Font: %s (%.1f px)", fontDisplay.c_str(), config.font_size);
     ImGui::Spacing();
     ImGui::TextDisabled("Changes apply live without restart and automatically persist to fizz.conf.");
 
