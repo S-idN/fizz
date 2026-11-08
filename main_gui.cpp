@@ -25,6 +25,7 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
+#include "services/BuiltinActions.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -54,18 +55,23 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     bool clicked = ImGui::Selectable("##row", selected,
                        ImGuiSelectableFlags_AllowDoubleClick, {0, kRowH});
 
-    size_t slash = path.rfind('/');
     std::string_view dir;
     std::string_view name;
-    if (slash == std::string_view::npos) {
-        dir = "";
-        name = path;
-    } else if (slash == 0) {
-        dir = "/";
-        name = path.substr(1);
+    if (fizz::isBuiltinActionPath(path)) {
+        name = fizz::getBuiltinActionTitle(path);
+        dir = path;
     } else {
-        dir = path.substr(0, slash);
-        name = path.substr(slash + 1);
+        size_t slash = path.rfind('/');
+        if (slash == std::string_view::npos) {
+            dir = "";
+            name = path;
+        } else if (slash == 0) {
+            dir = "/";
+            name = path.substr(1);
+        } else {
+            dir = path.substr(0, slash);
+            name = path.substr(slash + 1);
+        }
     }
 
     ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
@@ -147,6 +153,7 @@ int main() {
             g_IndexReloadedOnFocus = false;
             if (!lastQuery.empty() && stateMachine.getCurrentMode() == ViewMode::Search) {
                 searchPaths(lastQuery, results, kMaxHits);
+                fizz::rankHitsWithBuiltinActionsInPlace(lastQuery, results, kMaxHits);
                 selected = 0;
                 warningMsg.clear();
             }
@@ -180,6 +187,7 @@ int main() {
                     }
                     lastInputTime = now;
                     searchPaths(q, results, kMaxHits);
+                    fizz::rankHitsWithBuiltinActionsInPlace(q, results, kMaxHits);
                     lastQuery.assign(q);
                     selected = 0;
                     warningMsg.clear();
@@ -199,13 +207,10 @@ int main() {
 
             int chosen = -1;
             bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-            if (enterPressed) {
-                std::string_view q(buf);
-                if (q == "settings" || q == ":settings") {
-                    stateMachine.transitionTo(ViewMode::Settings);
-                } else if (q == "about" || q == ":about") {
-                    stateMachine.transitionTo(ViewMode::About);
-                } else if (n > 0) {
+            if (enterPressed && n > 0) {
+                if (fizz::isBuiltinActionPath(results[selected].path)) {
+                    fizz::executeBuiltinAction(results[selected].path, stateMachine);
+                } else {
                     bool isUntrusted = isDesktopEntry(results[selected].path) && !isDesktopEntryTrusted(results[selected].path);
                     if (isUntrusted && !io.KeyCtrl) {
                         warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";
@@ -221,7 +226,9 @@ int main() {
                 ImGui::PushID(i);
                 if (drawRow(results[i].path, results[i].execState, i == selected)) {
                     selected = i;
-                    if (ImGui::IsMouseDoubleClicked(0)) {
+                    if (fizz::isBuiltinActionPath(results[i].path)) {
+                        fizz::executeBuiltinAction(results[i].path, stateMachine);
+                    } else if (ImGui::IsMouseDoubleClicked(0)) {
                         bool isUntrusted = isDesktopEntry(results[i].path) && !isDesktopEntryTrusted(results[i].path);
                         if (isUntrusted && !io.KeyCtrl) {
                             warningMsg = "⚠️ Untrusted Desktop Entry. Press Ctrl+Enter to launch anyway";

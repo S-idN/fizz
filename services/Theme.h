@@ -24,6 +24,7 @@ struct Palette {
     static constexpr ImVec4 kTagGreen      = {0.550f, 0.850f, 0.450f, 1.00f};
     static constexpr ImVec4 kTagGrey       = {0.600f, 0.650f, 0.670f, 1.00f};
     static constexpr ImVec4 kTagTeal       = {0.200f, 0.780f, 0.720f, 1.00f}; // Crisp teal for doc
+    static constexpr ImVec4 kTagAction     = {0.780f, 0.350f, 0.920f, 1.00f}; // Distinct violet for builtin actions
 };
 
 // Layout and soft rounding metrics
