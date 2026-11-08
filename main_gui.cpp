@@ -115,10 +115,13 @@ int main() {
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHintString(GLFW_WAYLAND_APP_ID, "fizz");
 
-    GLFWwindow* window = glfwCreateWindow(kWidth, kHeight, "Fizz", nullptr, nullptr);
+    int winWidth = fizz::ui::clampWindowWidth(config.window_width);
+    int winHeight = fizz::ui::clampWindowHeight(config.window_height);
+
+    GLFWwindow* window = glfwCreateWindow(winWidth, winHeight, "Fizz", nullptr, nullptr);
     if (!window) { fprintf(stderr, "window creation failed\n"); glfwTerminate(); return 1; }
 
-    glfwSetWindowSizeLimits(window, kWidth, kHeight, kWidth, kHeight);
+    glfwSetWindowSizeLimits(window, winWidth, winHeight, winWidth, winHeight);
     glfwSetWindowUserPointer(window, &focusTracker);
     glfwSetWindowFocusCallback(window, windowFocusCallback);
 
@@ -129,10 +132,8 @@ int main() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;                  
-    std::string fontPath = resolveSystemFont();
-    if (fontPath.empty() || !io.Fonts->AddFontFromFileTTF(fontPath.c_str(), kFontPx, nullptr, fizz::ui::getUiGlyphRanges())) {
-        io.Fonts->AddFontDefault();
-    }
+    float fontSize = fizz::ui::clampFontSize(config.font_size);
+    fizz::ui::rebuildFontAtlas(config.font_path, fontSize);
     ImGui::StyleColorsDark();
     fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -171,6 +172,18 @@ int main() {
             generalTab.flushPendingSave(config);
         }
     });
+
+    fizz::ui::AppearanceCallbacks appearanceCallbacks;
+    appearanceCallbacks.onWindowResize = [window](int w, int h) {
+        glfwSetWindowSize(window, w, h);
+        glfwSetWindowSizeLimits(window, w, h, w, h);
+    };
+    appearanceCallbacks.onFontRebuild = [](const std::string& fontPath, float fontSize) {
+        fizz::ui::rebuildFontAtlas(fontPath, fontSize, []() {
+            ImGui_ImplOpenGL3_DestroyFontsTexture();
+            ImGui_ImplOpenGL3_CreateFontsTexture();
+        });
+    };
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -288,7 +301,7 @@ int main() {
             ImGui::BeginChild("settings_container", {0, 0}, false);
             if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
                 if (ImGui::BeginTabItem("Appearance")) {
-                    fizz::ui::renderAppearanceTab(config);
+                    fizz::ui::renderAppearanceTab(config, appearanceCallbacks);
                     ImGui::EndTabItem();
                 }
 

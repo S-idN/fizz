@@ -197,9 +197,61 @@ void test_host_system_font_discovery() {
     std::cout << "[PASS] test_host_system_font_discovery passed.\n";
 }
 
+void test_discovered_system_fonts_families() {
+    std::cout << "[TEST] Running test_discovered_system_fonts_families...\n";
+
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_font_families";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
+
+    // Initial check: empty directory
+    auto fontsEmpty = getDiscoveredSystemFonts(tempRoot.string());
+    FONT_TEST_ASSERT(fontsEmpty.size() >= 6);
+    FONT_TEST_ASSERT(fontsEmpty[0].familyName.find("Default") != std::string::npos);
+    FONT_TEST_ASSERT(fontsEmpty[0].available);
+    for (size_t i = 1; i < fontsEmpty.size(); ++i) {
+        FONT_TEST_ASSERT(!fontsEmpty[i].available);
+        FONT_TEST_ASSERT(fontsEmpty[i].path.empty());
+    }
+
+    // Populate Cantarell and JetBrains Mono
+    fs::path cantarellPath = tempRoot / "usr/share/fonts/cantarell/Cantarell-Regular.otf";
+    fs::path jbPath = tempRoot / "usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-Regular.ttf";
+    createDummyFile(cantarellPath);
+    createDummyFile(jbPath);
+
+    auto fontsPopulated = getDiscoveredSystemFonts(tempRoot.string());
+    bool foundCantarell = false;
+    bool foundJb = false;
+    bool adwaitaAvailable = false;
+
+    for (const auto& f : fontsPopulated) {
+        if (f.familyName == "Cantarell") {
+            FONT_TEST_ASSERT(f.available);
+            FONT_TEST_ASSERT(f.path == cantarellPath.lexically_normal().string());
+            foundCantarell = true;
+        } else if (f.familyName == "JetBrains Mono") {
+            FONT_TEST_ASSERT(f.available);
+            FONT_TEST_ASSERT(f.path == jbPath.lexically_normal().string());
+            foundJb = true;
+        } else if (f.familyName == "Adwaita Sans") {
+            adwaitaAvailable = f.available;
+        }
+    }
+
+    FONT_TEST_ASSERT(foundCantarell);
+    FONT_TEST_ASSERT(foundJb);
+    FONT_TEST_ASSERT(!adwaitaAvailable);
+
+    fs::remove_all(tempRoot, ec);
+    std::cout << "[PASS] test_discovered_system_fonts_families passed.\n";
+}
+
 void run_font_discovery_tests() {
     test_candidate_generation();
     test_cascade_priority();
     test_sandboxed_distro_filesystem_discovery();
     test_host_system_font_discovery();
+    test_discovered_system_fonts_families();
 }
