@@ -25,6 +25,7 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
+#include "services/AboutView.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -280,23 +281,7 @@ int main() {
                 stateMachine.transitionTo(ViewMode::Search);
             }
 
-            ImGui::BeginChild("about_container", {0, 0}, false);
-            ImGui::Spacing();
-            ImGui::TextColored(fizz::theme::Palette::kAccent, "Fizz Application Launcher");
-            ImGui::TextDisabled("v1.0.0");
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::TextWrapped("A fast, keyboard-driven desktop fuzzy file and application launcher for Linux.");
-            ImGui::Spacing();
-            ImGui::Text("Keyboard Navigation:");
-            ImGui::BulletText("↵ (Enter)        : Open file or launch application");
-            ImGui::BulletText("⇧↵ (Shift+Enter) : Reveal directory in file manager");
-            ImGui::BulletText("Esc              : Return to Search / Dismiss launcher");
-            ImGui::BulletText("Ctrl+,           : Open Settings view");
-            ImGui::BulletText("F1               : Open About view");
-            ImGui::Spacing();
-            ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
-            ImGui::EndChild();
+            fizz::ui::renderAboutView(config, stateMachine);
             break;
         }
         }

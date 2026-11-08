@@ -370,6 +370,9 @@ void test_ui_glyph_ranges() {
     // Warning emoji
     UI_TEST_ASSERT(isGlyphInRanges(ranges, 0x26A0)); // '⚠️'
 
+    // Indicator bullet
+    UI_TEST_ASSERT(isGlyphInRanges(ranges, 0x25CF)); // '●'
+
     // Uncovered control character
     UI_TEST_ASSERT(!isGlyphInRanges(ranges, 0x0005));
 

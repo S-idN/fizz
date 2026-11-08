@@ -51,6 +51,7 @@ const ImWchar* getUiGlyphRanges() {
     static const ImWchar ranges[] = {
         0x0020, 0x00FF, // Basic Latin + Latin Supplement
         0x2190, 0x21FF, // Arrows (includes ↵ U+21B5, ⇧ U+21E7)
+        0x25A0, 0x25FF, // Geometric Shapes (includes ● U+25CF)
         0x26A0, 0x26A0, // Warning sign ⚠️
         0,
     };
