@@ -25,6 +25,7 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
+#include "services/IndexingTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -140,6 +141,8 @@ int main() {
         warningMsg.clear();
     });
 
+    fizz::IndexingTab indexingTab;
+
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
 
@@ -252,25 +255,13 @@ int main() {
             }
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
-            ImGui::Spacing();
-            ImGui::TextColored(fizz::theme::Palette::kAccent, "Settings");
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::Text("Config Version: %d", config.config_version);
-            ImGui::Text("Theme: %s", config.theme.c_str());
-            ImGui::Text("Accent: %s", config.accent.c_str());
-            ImGui::Spacing();
-            ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
-            for (const auto& root : config.searchRoots) {
-                ImGui::BulletText("%s", root.c_str());
+            if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+                if (ImGui::BeginTabItem("Indexing")) {
+                    indexingTab.render(config);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
-            ImGui::Spacing();
-            ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
-            for (const auto& rule : config.ignoreRules) {
-                ImGui::BulletText("%s", rule.c_str());
-            }
-            ImGui::Spacing();
-            ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
             ImGui::EndChild();
             break;
         }
