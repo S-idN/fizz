@@ -25,6 +25,7 @@
 #include "services/Theme.h"
 #include "services/SearchUi.h"
 #include "services/ViewMode.h"
+#include "services/CacheTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -85,6 +86,9 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
 int main() {
     signal(SIGCHLD, SIG_IGN);
     FizzConfig config = loadConfig();
+    if (!config.binary_cache_path.empty()) {
+        setBinaryCachePath(config.binary_cache_path);
+    }
     FocusTracker focusTracker(config.autoCloseOnUnfocus);
     loadIndexToMemory();
 
@@ -139,6 +143,8 @@ int main() {
         selected = 0;
         warningMsg.clear();
     });
+
+    fizz::CacheTab cacheTab(config);
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -252,24 +258,37 @@ int main() {
             }
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
+            if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+                if (ImGui::BeginTabItem("General")) {
+                    ImGui::Spacing();
+                    ImGui::TextColored(fizz::theme::Palette::kAccent, "General Settings");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::Text("Config Version: %d", config.config_version);
+                    ImGui::Text("Theme: %s", config.theme.c_str());
+                    ImGui::Text("Accent: %s", config.accent.c_str());
+                    ImGui::Spacing();
+                    ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
+                    for (const auto& root : config.searchRoots) {
+                        ImGui::BulletText("%s", root.c_str());
+                    }
+                    ImGui::Spacing();
+                    ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
+                    for (const auto& rule : config.ignoreRules) {
+                        ImGui::BulletText("%s", rule.c_str());
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Cache")) {
+                    cacheTab.render(config);
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
             ImGui::Spacing();
-            ImGui::TextColored(fizz::theme::Palette::kAccent, "Settings");
             ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::Text("Config Version: %d", config.config_version);
-            ImGui::Text("Theme: %s", config.theme.c_str());
-            ImGui::Text("Accent: %s", config.accent.c_str());
-            ImGui::Spacing();
-            ImGui::Text("Search Roots (%zu):", config.searchRoots.size());
-            for (const auto& root : config.searchRoots) {
-                ImGui::BulletText("%s", root.c_str());
-            }
-            ImGui::Spacing();
-            ImGui::Text("Ignore Rules (%zu):", config.ignoreRules.size());
-            for (const auto& rule : config.ignoreRules) {
-                ImGui::BulletText("%s", rule.c_str());
-            }
-            ImGui::Spacing();
             ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
             ImGui::EndChild();
             break;

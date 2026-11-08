@@ -15,6 +15,7 @@ find_package(Threads REQUIRED)
 
 set(SERVICES_SOURCES
     services/AppLauncher.cpp
+    services/CacheTab.cpp
     services/Config.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
@@ -84,6 +85,8 @@ add_executable(fizz_tests
     tests/test_search_ui.cpp
     tests/test_file_cache_builder.cpp
     tests/test_view_mode.cpp
+    tests/test_cache_tab.cpp
+    services/CacheTab.cpp
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
