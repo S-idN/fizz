@@ -14,6 +14,7 @@ void run_cache_tab_tests();
 void run_view_state_tests();
 void run_builtin_actions_tests();
 void run_appearance_tab_tests();
+void run_indexing_tab_tests();
 
 int main(int argc, char* argv[]) {
     std::string suite = (argc > 1) ? argv[1] : "";
@@ -38,6 +39,7 @@ int main(int argc, char* argv[]) {
     run_if("view_state", run_view_state_tests);
     run_if("builtin_actions", run_builtin_actions_tests);
     run_if("appearance_tab", run_appearance_tab_tests);
+    run_if("indexing_tab", run_indexing_tab_tests);
 
     std::cout << "All tests passed successfully.\n";
     return 0;

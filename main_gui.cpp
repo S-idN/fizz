@@ -29,6 +29,7 @@
 #include "services/ViewState.h"
 #include "services/BuiltinActions.h"
 #include "services/AppearanceTab.h"
+#include "services/IndexingTab.h"
 
 constexpr int   kWidth   = 750;
 constexpr int   kHeight  = 480;
@@ -154,6 +155,7 @@ int main() {
     });
 
     fizz::CacheTab cacheTab(config);
+    fizz::IndexingTab indexingTab;
 
     while (!glfwWindowShouldClose(window)) {
         glfwWaitEventsTimeout(0.5);
@@ -273,6 +275,17 @@ int main() {
                     fizz::ui::renderAppearanceTab(config);
                     ImGui::EndTabItem();
                 }
+
+                if (ImGui::BeginTabItem("Indexing")) {
+                    indexingTab.render(config);
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Cache")) {
+                    cacheTab.render(config);
+                    ImGui::EndTabItem();
+                }
+
                 if (ImGui::BeginTabItem("General")) {
                     ImGui::Spacing();
                     ImGui::TextColored(fizz::theme::getActiveAccent(), "General Settings");
@@ -291,11 +304,6 @@ int main() {
                     for (const auto& rule : config.ignoreRules) {
                         ImGui::BulletText("%s", rule.c_str());
                     }
-                    ImGui::EndTabItem();
-                }
-
-                if (ImGui::BeginTabItem("Cache")) {
-                    cacheTab.render(config);
                     ImGui::EndTabItem();
                 }
 

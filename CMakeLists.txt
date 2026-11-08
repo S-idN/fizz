@@ -28,6 +28,7 @@ set(SERVICES_SOURCES
     services/ViewMode.cpp
     services/ViewState.cpp
     services/BuiltinActions.cpp
+    services/IndexingTab.cpp
 )
 
 set(IMGUI_CORE_SOURCES
@@ -92,6 +93,7 @@ add_executable(fizz_tests
     tests/test_view_state.cpp
     tests/test_builtin_actions.cpp
     tests/test_appearance_tab.cpp
+    tests/test_indexing_tab.cpp
     services/CacheTab.cpp
     services/AppearanceTab.cpp
     services/Config.cpp
@@ -107,6 +109,7 @@ add_executable(fizz_tests
     services/ViewMode.cpp
     services/ViewState.cpp
     services/BuiltinActions.cpp
+    services/IndexingTab.cpp
     ${IMGUI_CORE_SOURCES}
 )
 
