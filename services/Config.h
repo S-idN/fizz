@@ -39,3 +39,4 @@ std::string getUserRuntimeDir();
 void setCustomRuntimeDir(const std::string& path);
 
 FizzConfig loadConfig(const std::string& configPath = "");
+bool saveConfig(const FizzConfig& config, const std::string& configPath = "");

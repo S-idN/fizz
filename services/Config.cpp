@@ -8,6 +8,8 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -328,4 +330,223 @@ FizzConfig loadConfig(const std::string& configPath) {
     }
 
     return config;
+}
+
+static std::atomic<uint64_t> s_ConfigTmpCounter{0};
+
+static bool writeAllBytes(int fd, const char* data, size_t size) {
+    size_t total = 0;
+    while (total < size) {
+        ssize_t written = write(fd, data + total, size - total);
+        if (written < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        total += static_cast<size_t>(written);
+    }
+    return true;
+}
+
+static bool checkFileHasConfigVersion(const std::string& filePath) {
+    std::ifstream file(filePath);
+    if (!file.is_open()) return false;
+    std::string line;
+    while (std::getline(file, line)) {
+        std::string trimmed = trim(line);
+        if (trimmed.empty() || trimmed[0] == '#' || trimmed[0] == ';') continue;
+        size_t eqPos = trimmed.find('=');
+        if (eqPos == std::string::npos) continue;
+        std::string key = trim(trimmed.substr(0, eqPos));
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (key == "config_version") {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool backupPreV1Config(const std::string& srcPath, const std::string& backupPath, mode_t mode) {
+    struct stat bst;
+    if (lstat(backupPath.c_str(), &bst) == 0) {
+        if (S_ISLNK(bst.st_mode) || !S_ISREG(bst.st_mode) || bst.st_uid != geteuid()) {
+            return false;
+        }
+        unlink(backupPath.c_str());
+    }
+
+    std::ifstream src(srcPath, std::ios::binary);
+    if (!src.is_open()) return false;
+    std::string content((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+    src.close();
+
+    std::string tmpBackup;
+    int bfd = -1;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        tmpBackup = backupPath + ".tmp." + std::to_string(getpid()) + "." + std::to_string(++s_ConfigTmpCounter);
+        bfd = open(tmpBackup.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode);
+        if (bfd >= 0) break;
+        if (errno != EEXIST) {
+            return false;
+        }
+    }
+    if (bfd < 0) return false;
+
+    fchmod(bfd, mode);
+
+    if (!writeAllBytes(bfd, content.data(), content.size())) {
+        close(bfd);
+        unlink(tmpBackup.c_str());
+        return false;
+    }
+
+    if (fsync(bfd) != 0) {
+        close(bfd);
+        unlink(tmpBackup.c_str());
+        return false;
+    }
+
+    if (close(bfd) != 0) {
+        unlink(tmpBackup.c_str());
+        return false;
+    }
+
+    if (rename(tmpBackup.c_str(), backupPath.c_str()) != 0) {
+        unlink(tmpBackup.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+bool saveConfig(const FizzConfig& config, const std::string& configPath) {
+    std::string path = configPath.empty() ? getConfigPath() : configPath;
+    path = expandTilde(path);
+    if (path.empty()) {
+        return false;
+    }
+
+    fs::path p(path);
+    fs::path parent = p.parent_path();
+    if (parent.empty()) {
+        parent = ".";
+    }
+
+    std::error_code ec;
+    if (!fs::exists(parent, ec)) {
+        if (!fs::create_directories(parent, ec)) {
+            return false;
+        }
+        chmod(parent.c_str(), 0700);
+    }
+
+    struct stat parent_st;
+    if (stat(parent.c_str(), &parent_st) != 0 || !S_ISDIR(parent_st.st_mode)) {
+        return false;
+    }
+
+    bool isWorldWritable = (parent_st.st_mode & S_IWOTH) != 0;
+
+    struct stat dest_st;
+    bool destExists = (lstat(path.c_str(), &dest_st) == 0);
+
+    if (destExists) {
+        if (S_ISLNK(dest_st.st_mode) || !S_ISREG(dest_st.st_mode) || dest_st.st_uid != geteuid()) {
+            return false;
+        }
+    }
+
+    if (isWorldWritable && !destExists) {
+        return false;
+    }
+
+    mode_t mode = destExists ? (dest_st.st_mode & 0777) : 0600;
+
+    // Migrate unversioned configuration if destination exists and lacks config_version
+    if (destExists && !checkFileHasConfigVersion(path)) {
+        std::string backupPath = path + ".pre-v1";
+        if (!backupPreV1Config(path, backupPath, mode)) {
+            return false;
+        }
+    }
+
+    std::ostringstream ss;
+    ss << "# Fizz Configuration File\n";
+    ss << "config_version = " << std::max(1, config.config_version) << "\n\n";
+
+    ss << "# Search paths and ignore patterns\n";
+    ss << "search_roots = ";
+    for (size_t i = 0; i < config.searchRoots.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << config.searchRoots[i];
+    }
+    ss << "\n";
+
+    ss << "ignore_rules = ";
+    for (size_t i = 0; i < config.ignoreRules.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << config.ignoreRules[i];
+    }
+    ss << "\n\n";
+
+    ss << "# Window behavior\n";
+    ss << "auto_close_on_unfocus = " << (config.autoCloseOnUnfocus ? "true" : "false") << "\n\n";
+
+    ss << "# Visual appearance\n";
+    ss << "theme = " << config.theme << "\n";
+    ss << "accent = " << config.accent << "\n";
+    ss << "window_width = " << config.window_width << "\n";
+    ss << "window_height = " << config.window_height << "\n";
+    ss << "font_path = " << config.font_path << "\n";
+    ss << "font_size = " << (config.font_size > 0.0f ? config.font_size : 16.0f) << "\n\n";
+
+    ss << "# Binary cache and view state\n";
+    ss << "binary_cache_path = " << config.binary_cache_path << "\n";
+    ss << "view_state_grace_seconds = " << config.view_state_grace_seconds << "\n";
+
+    if (!config.unrecognizedKeys.empty()) {
+        ss << "\n# Unrecognized keys preserved for forward compatibility\n";
+        for (const auto& [k, v] : config.unrecognizedKeys) {
+            ss << k << " = " << v << "\n";
+        }
+    }
+
+    std::string serialized = ss.str();
+
+    std::string tmpPath;
+    int fd = -1;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        tmpPath = path + ".tmp." + std::to_string(getpid()) + "." + std::to_string(++s_ConfigTmpCounter);
+        fd = open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode);
+        if (fd >= 0) break;
+        if (errno != EEXIST) {
+            return false;
+        }
+    }
+    if (fd < 0) return false;
+
+    fchmod(fd, mode);
+
+    if (!writeAllBytes(fd, serialized.data(), serialized.size())) {
+        close(fd);
+        unlink(tmpPath.c_str());
+        return false;
+    }
+
+    if (fsync(fd) != 0) {
+        close(fd);
+        unlink(tmpPath.c_str());
+        return false;
+    }
+
+    if (close(fd) != 0) {
+        unlink(tmpPath.c_str());
+        return false;
+    }
+
+    if (rename(tmpPath.c_str(), path.c_str()) != 0) {
+        unlink(tmpPath.c_str());
+        return false;
+    }
+
+    return true;
 }

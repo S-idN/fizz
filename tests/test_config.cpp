@@ -6,6 +6,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "services/Config.h"
 #include "services/FileSearch.h"
 #include "services/LoadFile.h"
@@ -654,6 +655,339 @@ void test_config_permissive_parsing_unrecognized_keys() {
     std::cout << "[PASS] test_config_permissive_parsing_unrecognized_keys passed.\n";
 }
 
+void test_config_serializer_round_trip() {
+    std::cout << "[TEST] Running test_config_serializer_round_trip...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_save_roundtrip";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confFile = tempDir / "fizz.conf";
+
+    FizzConfig cfg;
+    cfg.config_version = 1;
+    cfg.searchRoots = {"/home/user/code", "/mnt/storage/data", "/opt/tools"};
+    cfg.ignoreRules = {".git", "node_modules", "build", "/tmp/scratch"};
+    cfg.autoCloseOnUnfocus = false;
+    cfg.theme = "light";
+    cfg.accent = "emerald";
+    cfg.window_width = 950;
+    cfg.window_height = 620;
+    cfg.font_path = "/usr/share/fonts/dejavu/DejaVuSansMono.ttf";
+    cfg.font_size = 18.5f;
+    cfg.binary_cache_path = "/var/cache/fizz/fizz_cache.bin";
+    cfg.view_state_grace_seconds = 10;
+
+    bool saved = saveConfig(cfg, confFile.string());
+    CONFIG_TEST_ASSERT(saved);
+    CONFIG_TEST_ASSERT(fs::exists(confFile));
+
+    // Verify raw text contents
+    std::ifstream in(confFile);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    CONFIG_TEST_ASSERT(content.find("config_version = 1") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("search_roots = /home/user/code, /mnt/storage/data, /opt/tools") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("ignore_rules = .git, node_modules, build, /tmp/scratch") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("auto_close_on_unfocus = false") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("theme = light") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("accent = emerald") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("window_width = 950") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("window_height = 620") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("font_path = /usr/share/fonts/dejavu/DejaVuSansMono.ttf") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("font_size = 18.5") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("binary_cache_path = /var/cache/fizz/fizz_cache.bin") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("view_state_grace_seconds = 10") != std::string::npos);
+
+    // Verify round-trip load
+    FizzConfig loaded = loadConfig(confFile.string());
+    CONFIG_TEST_ASSERT(loaded.config_version == 1);
+    CONFIG_TEST_ASSERT(loaded.searchRoots == cfg.searchRoots);
+    CONFIG_TEST_ASSERT(loaded.ignoreRules == cfg.ignoreRules);
+    CONFIG_TEST_ASSERT(loaded.autoCloseOnUnfocus == cfg.autoCloseOnUnfocus);
+    CONFIG_TEST_ASSERT(loaded.theme == cfg.theme);
+    CONFIG_TEST_ASSERT(loaded.accent == cfg.accent);
+    CONFIG_TEST_ASSERT(loaded.window_width == cfg.window_width);
+    CONFIG_TEST_ASSERT(loaded.window_height == cfg.window_height);
+    CONFIG_TEST_ASSERT(loaded.font_path == cfg.font_path);
+    CONFIG_TEST_ASSERT(loaded.font_size == cfg.font_size);
+    CONFIG_TEST_ASSERT(loaded.binary_cache_path == cfg.binary_cache_path);
+    CONFIG_TEST_ASSERT(loaded.view_state_grace_seconds == cfg.view_state_grace_seconds);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_round_trip passed.\n";
+}
+
+void test_config_serializer_unrecognized_keys() {
+    std::cout << "[TEST] Running test_config_serializer_unrecognized_keys...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_save_unrec";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confFile = tempDir / "fizz.conf";
+
+    FizzConfig cfg = FizzConfig::defaults();
+    cfg.unrecognizedKeys.push_back({"experimental_ai_ranking", "true"});
+    cfg.unrecognizedKeys.push_back({"custom_plugin_path", "/usr/local/lib/fizz/plugin.so"});
+    cfg.unrecognizedKeys.push_back({"ArbitraryKey", "ArbitraryValue"});
+
+    bool saved = saveConfig(cfg, confFile.string());
+    CONFIG_TEST_ASSERT(saved);
+
+    std::ifstream in(confFile);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    CONFIG_TEST_ASSERT(content.find("experimental_ai_ranking = true") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("custom_plugin_path = /usr/local/lib/fizz/plugin.so") != std::string::npos);
+    CONFIG_TEST_ASSERT(content.find("ArbitraryKey = ArbitraryValue") != std::string::npos);
+
+    FizzConfig loaded = loadConfig(confFile.string());
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys.size() == 3);
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[0].first == "experimental_ai_ranking");
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[0].second == "true");
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[1].first == "custom_plugin_path");
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[1].second == "/usr/local/lib/fizz/plugin.so");
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[2].first == "ArbitraryKey");
+    CONFIG_TEST_ASSERT(loaded.unrecognizedKeys[2].second == "ArbitraryValue");
+
+    // Modify a known option and re-save: unrecognized keys must remain untouched
+    loaded.theme = "light";
+    bool savedAgain = saveConfig(loaded, confFile.string());
+    CONFIG_TEST_ASSERT(savedAgain);
+
+    FizzConfig loadedAgain = loadConfig(confFile.string());
+    CONFIG_TEST_ASSERT(loadedAgain.theme == "light");
+    CONFIG_TEST_ASSERT(loadedAgain.unrecognizedKeys.size() == 3);
+    CONFIG_TEST_ASSERT(loadedAgain.unrecognizedKeys == loaded.unrecognizedKeys);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_unrecognized_keys passed.\n";
+}
+
+void test_config_serializer_default_path() {
+    std::cout << "[TEST] Running test_config_serializer_default_path...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_save_default_path";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path customPath = tempDir / "default_fizz.conf";
+    setConfigPath(customPath.string());
+
+    FizzConfig cfg = FizzConfig::defaults();
+    cfg.theme = "light";
+
+    // Calling saveConfig without path argument should use getConfigPath()
+    bool saved = saveConfig(cfg);
+    CONFIG_TEST_ASSERT(saved);
+    CONFIG_TEST_ASSERT(fs::exists(customPath));
+
+    FizzConfig loaded = loadConfig(customPath.string());
+    CONFIG_TEST_ASSERT(loaded.theme == "light");
+
+    setConfigPath("");
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_default_path passed.\n";
+}
+
+void test_config_serializer_permission_modes() {
+    std::cout << "[TEST] Running test_config_serializer_permission_modes...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_permissions";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    // 1. New file creation defaults to strict 0600 mode regardless of umask
+    fs::path newConf = tempDir / "new_strict.conf";
+    FizzConfig cfg = FizzConfig::defaults();
+    bool savedNew = saveConfig(cfg, newConf.string());
+    CONFIG_TEST_ASSERT(savedNew);
+
+    struct stat stNew;
+    CONFIG_TEST_ASSERT(stat(newConf.c_str(), &stNew) == 0);
+    CONFIG_TEST_ASSERT((stNew.st_mode & 0777) == 0600);
+
+    // 2. Existing file permissions are preserved (e.g. 0644)
+    fs::path existingConf = tempDir / "existing_0644.conf";
+    {
+        std::ofstream out(existingConf);
+        out << "theme = dark\n";
+    }
+    chmod(existingConf.c_str(), 0644);
+    struct stat stInitial;
+    CONFIG_TEST_ASSERT(stat(existingConf.c_str(), &stInitial) == 0);
+    CONFIG_TEST_ASSERT((stInitial.st_mode & 0777) == 0644);
+
+    cfg.theme = "light";
+    bool savedExisting = saveConfig(cfg, existingConf.string());
+    CONFIG_TEST_ASSERT(savedExisting);
+
+    struct stat stPreserved;
+    CONFIG_TEST_ASSERT(stat(existingConf.c_str(), &stPreserved) == 0);
+    CONFIG_TEST_ASSERT((stPreserved.st_mode & 0777) == 0644);
+
+    // 3. Creating intermediate parent directories
+    fs::path nestedConf = tempDir / "sub1" / "sub2" / "nested.conf";
+    bool savedNested = saveConfig(cfg, nestedConf.string());
+    CONFIG_TEST_ASSERT(savedNested);
+    CONFIG_TEST_ASSERT(fs::exists(nestedConf));
+    struct stat stNested;
+    CONFIG_TEST_ASSERT(stat(nestedConf.c_str(), &stNested) == 0);
+    CONFIG_TEST_ASSERT((stNested.st_mode & 0777) == 0600);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_permission_modes passed.\n";
+}
+
+void test_config_serializer_world_writable_and_security() {
+    std::cout << "[TEST] Running test_config_serializer_world_writable_and_security...\n";
+
+    FizzConfig cfg = FizzConfig::defaults();
+
+    // 1. Refuse write to non-existent file in world-writable directory (/tmp)
+    std::string tmpNew = "/tmp/fizz_test_nonexistent_" + std::to_string(getpid()) + "_" + std::to_string(rand()) + ".conf";
+    bool resNew = saveConfig(cfg, tmpNew);
+    CONFIG_TEST_ASSERT(!resNew);
+    std::error_code ec;
+    CONFIG_TEST_ASSERT(!fs::exists(tmpNew, ec));
+
+    // 2. Allow write to existing regular file owned by current user in /tmp
+    std::string tmpExisting = "/tmp/fizz_test_existing_" + std::to_string(getpid()) + "_" + std::to_string(rand()) + ".conf";
+    int fd = open(tmpExisting.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+    CONFIG_TEST_ASSERT(fd >= 0);
+    const char dummy[] = "config_version = 1\n";
+    write(fd, dummy, sizeof(dummy) - 1);
+    close(fd);
+
+    bool resExisting = saveConfig(cfg, tmpExisting);
+    CONFIG_TEST_ASSERT(resExisting);
+    unlink(tmpExisting.c_str());
+
+    // 3. Refuse write to symlink in world-writable directory
+    std::string tmpSymlink = "/tmp/fizz_test_symlink_" + std::to_string(getpid()) + "_" + std::to_string(rand()) + ".conf";
+    std::string symTarget = "/tmp/fizz_test_sym_target_" + std::to_string(getpid()) + "_" + std::to_string(rand()) + ".conf";
+    {
+        std::ofstream out(symTarget);
+        out << "config_version = 1\n";
+    }
+    symlink(symTarget.c_str(), tmpSymlink.c_str());
+    bool resSymlink = saveConfig(cfg, tmpSymlink);
+    CONFIG_TEST_ASSERT(!resSymlink);
+    unlink(tmpSymlink.c_str());
+    unlink(symTarget.c_str());
+
+    // 4. Refuse write to symlink in standard (non-world-writable) directory
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_symlink_dir";
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path realTarget = tempDir / "real_file.conf";
+    {
+        std::ofstream out(realTarget);
+        out << "config_version = 1\n";
+    }
+    fs::path linkPath = tempDir / "link_to_real.conf";
+    symlink(realTarget.c_str(), linkPath.c_str());
+
+    bool resSecLink = saveConfig(cfg, linkPath.string());
+    CONFIG_TEST_ASSERT(!resSecLink);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_world_writable_and_security passed.\n";
+}
+
+void test_config_serializer_migration_pre_v1_backup() {
+    std::cout << "[TEST] Running test_config_serializer_migration_pre_v1_backup...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_migration";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confPath = tempDir / "fizz.conf";
+    fs::path backupPath = tempDir / "fizz.conf.pre-v1";
+
+    // 1. Create an unversioned legacy config file (no config_version)
+    std::string legacyContent =
+        "# Legacy fizz config without schema version\n"
+        "search_roots = /usr/local/bin, /opt/bin\n"
+        "theme = dark\n"
+        "auto_close_on_unfocus = false\n";
+
+    {
+        std::ofstream out(confPath);
+        out << legacyContent;
+    }
+    chmod(confPath.c_str(), 0644);
+
+    CONFIG_TEST_ASSERT(!fs::exists(backupPath));
+
+    // 2. Saving config should create .pre-v1 backup of original legacy file
+    FizzConfig newCfg;
+    newCfg.config_version = 1;
+    newCfg.theme = "light";
+    newCfg.accent = "green";
+    newCfg.searchRoots = {"/usr/local/bin", "/opt/bin"};
+
+    bool saved = saveConfig(newCfg, confPath.string());
+    CONFIG_TEST_ASSERT(saved);
+
+    // Backup exists and contains original legacy content
+    CONFIG_TEST_ASSERT(fs::exists(backupPath));
+    std::ifstream bIn(backupPath);
+    std::string backedUpContent((std::istreambuf_iterator<char>(bIn)), std::istreambuf_iterator<char>());
+    bIn.close();
+    CONFIG_TEST_ASSERT(backedUpContent == legacyContent);
+
+    // Preserves mode on backup
+    struct stat stBackup;
+    CONFIG_TEST_ASSERT(stat(backupPath.c_str(), &stBackup) == 0);
+    CONFIG_TEST_ASSERT((stBackup.st_mode & 0777) == 0644);
+
+    // New file contains config_version = 1
+    std::ifstream cIn(confPath);
+    std::string newContent((std::istreambuf_iterator<char>(cIn)), std::istreambuf_iterator<char>());
+    cIn.close();
+    CONFIG_TEST_ASSERT(newContent.find("config_version = 1") != std::string::npos);
+    CONFIG_TEST_ASSERT(newContent.find("theme = light") != std::string::npos);
+
+    // 3. Second save: file already contains config_version, backup must NOT be modified
+    newCfg.theme = "emerald";
+    bool savedAgain = saveConfig(newCfg, confPath.string());
+    CONFIG_TEST_ASSERT(savedAgain);
+
+    std::ifstream bIn2(backupPath);
+    std::string backedUpContent2((std::istreambuf_iterator<char>(bIn2)), std::istreambuf_iterator<char>());
+    bIn2.close();
+    CONFIG_TEST_ASSERT(backedUpContent2 == legacyContent); // Still identical to original legacy
+
+    // 4. File that starts with config_version = 1 never creates .pre-v1
+    fs::path freshVersioned = tempDir / "fresh_v1.conf";
+    {
+        std::ofstream out(freshVersioned);
+        out << "config_version = 1\nsearch_roots = /tmp\n";
+    }
+    bool savedFresh = saveConfig(newCfg, freshVersioned.string());
+    CONFIG_TEST_ASSERT(savedFresh);
+    CONFIG_TEST_ASSERT(!fs::exists(freshVersioned.string() + ".pre-v1"));
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_serializer_migration_pre_v1_backup passed.\n";
+}
+
 void run_config_tests() {
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
@@ -665,4 +999,10 @@ void run_config_tests() {
     test_config_schema_version_and_defaults();
     test_config_bounded_fields_and_enum_fallbacks();
     test_config_permissive_parsing_unrecognized_keys();
+    test_config_serializer_round_trip();
+    test_config_serializer_unrecognized_keys();
+    test_config_serializer_default_path();
+    test_config_serializer_permission_modes();
+    test_config_serializer_world_writable_and_security();
+    test_config_serializer_migration_pre_v1_backup();
 }
