@@ -10,6 +10,7 @@ void run_theme_tests();
 void run_search_ui_tests();
 void run_file_cache_builder_tests();
 void run_view_mode_tests();
+void run_view_state_tests();
 
 int main(int argc, char* argv[]) {
     std::string suite = (argc > 1) ? argv[1] : "";
@@ -30,6 +31,7 @@ int main(int argc, char* argv[]) {
     run_if("file_cache_builder", run_file_cache_builder_tests);
     run_if("index_daemon", run_file_cache_builder_tests);
     run_if("view_mode", run_view_mode_tests);
+    run_if("view_state", run_view_state_tests);
 
     std::cout << "All tests passed successfully.\n";
     return 0;
