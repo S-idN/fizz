@@ -495,7 +495,7 @@ bool saveConfig(const FizzConfig& config, const std::string& configPath) {
     ss << "# Fizz Configuration File\n";
     ss << "config_version = " << std::max(1, config.config_version) << "\n\n";
 
-    ss << "# Search paths and ignore patterns\n";
+    ss << "# Search roots and ignore rules\n";
     ss << "search_roots = ";
     for (size_t i = 0; i < config.searchRoots.size(); ++i) {
         if (i > 0) ss << ", ";

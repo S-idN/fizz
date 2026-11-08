@@ -198,6 +198,17 @@ void test_app_first_ranking_precedence() {
     ACTION_TEST_ASSERT(rankedF[0].path == "/usr/share/applications/settings.desktop");
     ACTION_TEST_ASSERT(rankedF[1].path == fizz::kActionPathSettings);
 
+    // Scenario G: Unmatched desktop entries rank after Builtin Action Hit
+    std::vector<SearchHit> inputG = {
+        SearchHit{"/usr/share/applications/gimp.desktop", ExecState::Executable, 100},
+        SearchHit{"/usr/share/applications/settings.desktop", ExecState::Executable, 200}
+    };
+    auto rankedG = fizz::rankHitsWithBuiltinActions("settings", inputG, 50);
+    ACTION_TEST_ASSERT(rankedG.size() == 3);
+    ACTION_TEST_ASSERT(rankedG[0].path == "/usr/share/applications/settings.desktop");
+    ACTION_TEST_ASSERT(rankedG[1].path == fizz::kActionPathSettings);
+    ACTION_TEST_ASSERT(rankedG[2].path == "/usr/share/applications/gimp.desktop");
+
     std::cout << "[PASS] test_app_first_ranking_precedence passed.\n";
 }
 

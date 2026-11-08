@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cassert>
+#include <cstring>
 #include <string>
 #include "services/IndexingTab.h"
 
@@ -552,6 +553,34 @@ void test_preset_application_and_atomic_persistence() {
     std::cout << "[PASS] test_preset_application_and_atomic_persistence passed.\n";
 }
 
+void test_manual_god_mode_root_intercept() {
+    std::cout << "[TEST] Running test_manual_god_mode_root_intercept...\n";
+    std::string testDir = "/tmp/fizz_test_manual_root_" + std::to_string(getpid());
+    std::error_code ec;
+    fs::create_directories(testDir, ec);
+    std::string testConfigPath = testDir + "/fizz.conf";
+
+    FizzConfig config;
+    config.searchRoots = {"/home/user/docs"};
+    config.ignoreRules = {"node_modules"};
+    saveConfig(config, testConfigPath);
+
+    fizz::IndexingTab tab;
+    // Enter "/" as new root in buffer
+    std::strncpy(tab.getState().newRootBuffer, "/", sizeof(tab.getState().newRootBuffer));
+    tab.submitNewRoot(config, testConfigPath);
+
+    // Assert that adding "/" manually was intercepted and triggered God Mode modal
+    INDEXING_TEST_ASSERT(tab.isGodModeWarningOpen());
+    INDEXING_TEST_ASSERT(tab.getPendingPreset() == fizz::PresetType::GodMode);
+    // Config was not blindly updated with "/" without confirmation
+    INDEXING_TEST_ASSERT(config.searchRoots.size() == 1);
+    INDEXING_TEST_ASSERT(config.searchRoots[0] == "/home/user/docs");
+
+    fs::remove_all(testDir, ec);
+    std::cout << "[PASS] test_manual_god_mode_root_intercept passed.\n";
+}
+
 void run_indexing_tab_tests() {
     test_normalize_search_root();
     test_normalize_ignore_rule();
@@ -562,5 +591,6 @@ void run_indexing_tab_tests() {
     test_search_roots_mutation_and_persistence();
     test_ignore_rules_mutation_and_persistence();
     test_indexing_tab_state_and_actions();
+    test_manual_god_mode_root_intercept();
     test_headless_indexing_tab_rendering();
 }

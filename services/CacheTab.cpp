@@ -149,11 +149,11 @@ bool validateCachePath(const std::string& path, std::string* errorMessage, uid_t
             return false;
         }
         if (path_st.st_uid != currentUid) {
-            if (errorMessage) *errorMessage = "Cache file is owned by another user.";
+            if (errorMessage) *errorMessage = "Binary cache is owned by another user.";
             return false;
         }
         if (access(norm.c_str(), W_OK) != 0) {
-            if (errorMessage) *errorMessage = "Cache file is not writable.";
+            if (errorMessage) *errorMessage = "Binary cache is not writable.";
             return false;
         }
     }

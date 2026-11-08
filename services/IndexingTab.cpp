@@ -230,6 +230,13 @@ bool IndexingTab::renderTabItem(FizzConfig& config, const std::string& configPat
 }
 
 MutationResult IndexingTab::submitNewRoot(FizzConfig& config, const std::string& configPath) {
+    std::string normalized = normalizeSearchRoot(m_state.newRootBuffer);
+    if (normalized == "/") {
+        m_state.requestApplyPreset(PresetType::GodMode);
+        m_state.setStatus("Adding root ('/') triggers God Mode. Please confirm in the warning modal.", true);
+        return MutationResult::Duplicate;
+    }
+
     MutationResult res = addSearchRoot(config, m_state.newRootBuffer, configPath);
     if (res == MutationResult::Success) {
         m_state.newRootBuffer[0] = '\0';
@@ -256,7 +263,7 @@ MutationResult IndexingTab::submitNewRule(FizzConfig& config, const std::string&
     } else if (res == MutationResult::Duplicate) {
         m_state.setStatus("Pattern is already in Ignore Rules", true);
     } else if (res == MutationResult::EmptyInput) {
-        m_state.setStatus("Please enter a non-empty exclusion pattern", true);
+        m_state.setStatus("Please enter a non-empty ignore rule", true);
     } else if (res == MutationResult::SaveFailed) {
         m_state.setStatus("Failed to persist changes to configuration", true);
     }
@@ -452,18 +459,24 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     ImGui::SameLine();
     bool rootAddClicked = ImGui::Button("Add Root##btn_add_root", ImVec2(addBtnW, 0));
     if (rootEnter || rootAddClicked) {
-        MutationResult res = addSearchRoot(config, state.newRootBuffer, configPath);
-        if (res == MutationResult::Success) {
-            state.newRootBuffer[0] = '\0';
-            state.selectedRootIndex = static_cast<int>(config.searchRoots.size()) - 1;
-            state.activeFocus = SectionFocus::SearchRoots;
-            state.setStatus("Added search root: " + config.searchRoots.back(), false);
-        } else if (res == MutationResult::Duplicate) {
-            state.setStatus("Directory is already in Search Roots", true);
-        } else if (res == MutationResult::EmptyInput) {
-            state.setStatus("Please enter a non-empty directory path", true);
-        } else if (res == MutationResult::SaveFailed) {
-            state.setStatus("Failed to persist changes to configuration", true);
+        std::string normalized = normalizeSearchRoot(state.newRootBuffer);
+        if (normalized == "/") {
+            state.requestApplyPreset(PresetType::GodMode);
+            state.setStatus("Adding root ('/') triggers God Mode. Please confirm in the warning modal.", true);
+        } else {
+            MutationResult res = addSearchRoot(config, state.newRootBuffer, configPath);
+            if (res == MutationResult::Success) {
+                state.newRootBuffer[0] = '\0';
+                state.selectedRootIndex = static_cast<int>(config.searchRoots.size()) - 1;
+                state.activeFocus = SectionFocus::SearchRoots;
+                state.setStatus("Added search root: " + config.searchRoots.back(), false);
+            } else if (res == MutationResult::Duplicate) {
+                state.setStatus("Directory is already in Search Roots", true);
+            } else if (res == MutationResult::EmptyInput) {
+                state.setStatus("Please enter a non-empty directory path", true);
+            } else if (res == MutationResult::SaveFailed) {
+                state.setStatus("Failed to persist changes to configuration", true);
+            }
         }
     }
 
@@ -512,7 +525,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
 
     // Input line
     ImGui::SetNextItemWidth(inputW);
-    bool ruleEnter = ImGui::InputTextWithHint("##new_rule_input", "Enter exclusion pattern (e.g. node_modules, *.log)...",
+    bool ruleEnter = ImGui::InputTextWithHint("##new_rule_input", "Enter ignore rule (e.g. node_modules, *.log)...",
                                               state.newRuleBuffer, sizeof(state.newRuleBuffer),
                                               ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
@@ -527,7 +540,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
         } else if (res == MutationResult::Duplicate) {
             state.setStatus("Pattern is already in Ignore Rules", true);
         } else if (res == MutationResult::EmptyInput) {
-            state.setStatus("Please enter a non-empty exclusion pattern", true);
+            state.setStatus("Please enter a non-empty ignore rule", true);
         } else if (res == MutationResult::SaveFailed) {
             state.setStatus("Failed to persist changes to configuration", true);
         }

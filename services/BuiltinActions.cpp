@@ -2,6 +2,7 @@
 #include "AppLauncher.h"
 #include <cctype>
 #include <algorithm>
+#include <fstream>
 
 namespace fizz {
 
@@ -147,14 +148,49 @@ bool desktopEntryMatchesQuery(std::string_view path, std::string_view query) {
     }
     BuiltinActionType actionType = matchBuiltinActionQuery(query);
     std::string stem = extractLowerStem(path);
+    std::string targetKeyword;
     if (actionType == BuiltinActionType::Settings) {
-        return stem.find("settings") != std::string::npos;
+        targetKeyword = "settings";
+    } else if (actionType == BuiltinActionType::About) {
+        targetKeyword = "about";
+    } else {
+        targetKeyword = normalizeQuery(query);
     }
-    if (actionType == BuiltinActionType::About) {
-        return stem.find("about") != std::string::npos;
+    if (targetKeyword.empty()) {
+        return false;
     }
-    std::string normQ = normalizeQuery(query);
-    return !normQ.empty() && stem.find(normQ) != std::string::npos;
+
+    if (stem.find(targetKeyword) != std::string::npos) {
+        return true;
+    }
+
+    // Also inspect Name= field in the .desktop file content
+    std::string pathStr(path);
+    std::ifstream infile(pathStr);
+    if (infile.is_open()) {
+        std::string line;
+        bool inDesktopEntry = false;
+        while (std::getline(infile, line)) {
+            size_t start = line.find_first_not_of(" \t");
+            if (start == std::string::npos) continue;
+            std::string_view trimmed = std::string_view(line).substr(start);
+            if (!trimmed.empty() && trimmed.front() == '[') {
+                inDesktopEntry = (trimmed.rfind("[Desktop Entry]", 0) == 0);
+                continue;
+            }
+            if (inDesktopEntry && trimmed.rfind("Name=", 0) == 0) {
+                std::string val(trimmed.substr(5));
+                std::transform(val.begin(), val.end(), val.begin(), [](unsigned char c) {
+                    return static_cast<char>(std::tolower(c));
+                });
+                if (val.find(targetKeyword) != std::string::npos) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 std::vector<SearchHit> rankHitsWithBuiltinActions(
@@ -195,17 +231,17 @@ std::vector<SearchHit> rankHitsWithBuiltinActions(
         results.push_back(std::move(hit));
     }
 
-    // 2. Other desktop entries in search results rank next
-    for (auto& hit : otherDesktopHits) {
-        results.push_back(std::move(hit));
-    }
-
-    // 3. Builtin Action Hits strictly rank ahead of regular files
+    // 2. Builtin Action Hits strictly rank ahead of regular files and non-matching desktop entries
     for (const auto& action : actionHits) {
         results.push_back(toSearchHit(action));
     }
 
-    // 4. Regular files follow Builtin Action Hits
+    // 3. Other desktop entries in search results rank next
+    for (auto& hit : otherDesktopHits) {
+        results.push_back(std::move(hit));
+    }
+
+    // 4. Regular files follow
     for (auto& hit : regularHits) {
         results.push_back(std::move(hit));
     }

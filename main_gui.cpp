@@ -355,7 +355,7 @@ int main() {
     generalTab.flushPendingSave(config);
 
     ViewMode exitMode = stateMachine.getCurrentMode();
-    if (exitMode == ViewMode::Settings || exitMode == ViewMode::About) {
+    if (config.autoCloseOnUnfocus && (exitMode == ViewMode::Settings || exitMode == ViewMode::About)) {
         saveViewState(exitMode);
     } else {
         clearViewState();
