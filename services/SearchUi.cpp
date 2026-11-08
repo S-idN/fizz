@@ -1,6 +1,7 @@
 #include "SearchUi.h"
 #include "Theme.h"
 #include "AppLauncher.h"
+#include "BuiltinActions.h"
 #include <algorithm>
 
 namespace fizz::ui {
@@ -50,8 +51,8 @@ const std::vector<ShortcutItem>& getNavigationShortcuts() {
 const ImWchar* getUiGlyphRanges() {
     static const ImWchar ranges[] = {
         0x0020, 0x00FF, // Basic Latin + Latin Supplement
-        0x2190, 0x21FF, // Arrows (includes ↵ U+21B5, ⇧ U+21E7)
-        0x26A0, 0x26A0, // Warning sign ⚠️
+        0x2100, 0x21FF, // Letterlike Symbols & Arrows (includes ℹ U+2139, ↵ U+21B5, ⇧ U+21E7)
+        0x2600, 0x26FF, // Miscellaneous Symbols (includes ⚙ U+2699, ⚠️ U+26A0)
         0,
     };
     return ranges;
@@ -92,6 +93,10 @@ BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax,
 }
 
 CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
+    if (fizz::isBuiltinActionPath(path)) {
+        return {fizz::kActionBadgeLabel, theme::Palette::kTagAction};
+    }
+
     std::string_view cat = classifyPath(path, state);
     if (cat.empty()) {
         return {"", ImVec4(0, 0, 0, 0)};
