@@ -1,10 +1,13 @@
 #pragma once
 #include <iostream>
 #include <optional>
+#include <string>
+#include <vector>
 
 enum class ExecState : unsigned char {
     NotExecutable = 0,
-    Executable = 1
+    Executable = 1,
+    Unknown = 2   ///< Deferred — resolve lazily via access(X_OK) at display/launch time
 };
 
 struct fileEntity {
@@ -16,4 +19,23 @@ struct fileEntity {
     ExecState f_execState;
 };
 
-void systemFileSearch(const std::string myName);
+extern std::vector<fileEntity> fileStructTable;
+
+void systemFileSearch(const std::vector<std::string>& searchRoots);
+void systemFileSearch(const std::string& currPath);
+
+std::vector<std::string> getDefaultSearchRoots(bool existingOnly = true);
+
+bool isPathIgnored(std::string_view fullpath, const char* d_name = nullptr);
+
+void setCustomIgnoreRules(const std::vector<std::string>& rules);
+
+std::string_view classifyPath(std::string_view path, ExecState state);
+
+std::string getBinaryCachePath();
+void setBinaryCachePath(const std::string& path);
+
+void setSearchInterrupted(bool interrupted = true);
+bool isSearchInterrupted();
+void setupSearchSignalHandlers();
+void restoreSearchSignalHandlers();
