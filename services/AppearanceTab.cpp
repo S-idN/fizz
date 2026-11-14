@@ -54,6 +54,50 @@ float clampFontSize(float fontSize) {
     return std::clamp(fontSize, kMinFontSize, kMaxFontSize);
 }
 
+WindowPosition calculateCenteredWindowPos(
+    const MonitorWorkArea& workArea,
+    int windowWidth,
+    int windowHeight,
+    const WindowPosition& fallbackPos) {
+    if (workArea.width <= 0 || workArea.height <= 0) {
+        return fallbackPos;
+    }
+
+    int targetX = 0;
+    if (windowWidth <= workArea.width) {
+        targetX = workArea.x + (workArea.width - windowWidth) / 2;
+        targetX = std::clamp(targetX, workArea.x, workArea.x + workArea.width - windowWidth);
+    } else {
+        targetX = workArea.x;
+    }
+
+    int targetY = 0;
+    if (windowHeight <= workArea.height) {
+        targetY = workArea.y + (workArea.height - windowHeight) / 2;
+        targetY = std::clamp(targetY, workArea.y, workArea.y + workArea.height - windowHeight);
+    } else {
+        targetY = workArea.y;
+    }
+
+    return {targetX, targetY};
+}
+
+int findActiveMonitorIndex(
+    const std::vector<MonitorWorkArea>& monitors,
+    int centerX,
+    int centerY) {
+    for (size_t i = 0; i < monitors.size(); ++i) {
+        const auto& m = monitors[i];
+        if (m.width > 0 && m.height > 0) {
+            if (centerX >= m.x && centerX < m.x + m.width &&
+                centerY >= m.y && centerY < m.y + m.height) {
+                return static_cast<int>(i);
+            }
+        }
+    }
+    return -1;
+}
+
 void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
     s_globalWindowResizeCallback = std::move(cb);
 }
@@ -508,20 +552,6 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
 
     ImGui::Spacing();
     ImGui::TextDisabled("Select standard system fonts or configure custom TTF/OTF path. Dynamically rebuilds font atlas.");
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // 5. Status / Summary
-    ImGui::Text("Current Theme: %s", (config.theme == "light" ? "Light" : "Dark"));
-    ImGui::SameLine(180.0f);
-    ImGui::Text("Current Accent: %s", config.accent.c_str());
-    ImGui::Text("Window Size: %d x %d px", config.window_width, config.window_height);
-    ImGui::SameLine(240.0f);
-    std::string fontDisplay = config.font_path.empty() ? "System Default" : config.font_path;
-    ImGui::Text("Font: %s (%.1f px)", fontDisplay.c_str(), config.font_size);
-    ImGui::Spacing();
-    ImGui::TextDisabled("Changes apply live without restart and automatically persist to fizz.conf.");
 
     return modified;
 }

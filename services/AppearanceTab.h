@@ -26,6 +26,51 @@ int clampWindowWidth(int width);
 int clampWindowHeight(int height);
 float clampFontSize(float fontSize);
 
+// Monitor work area rectangle (in screen coordinates)
+struct MonitorWorkArea {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+
+    bool empty() const {
+        return width <= 0 || height <= 0;
+    }
+};
+
+// 2D window position coordinates
+struct WindowPosition {
+    int x = 0;
+    int y = 0;
+
+    bool operator==(const WindowPosition& other) const {
+        return x == other.x && y == other.y;
+    }
+    bool operator!=(const WindowPosition& other) const {
+        return !(*this == other);
+    }
+};
+
+// Calculates the centered window position within a monitor work area.
+// Coordinates are centered at:
+//   target_x = work_x + (work_width - window_width) / 2
+//   target_y = work_y + (work_height - window_height) / 2
+// Clamps coordinates so that the window stays within monitor bounds.
+// If work area is empty or unavailable (width <= 0 or height <= 0),
+// gracefully falls back to fallbackPos.
+WindowPosition calculateCenteredWindowPos(
+    const MonitorWorkArea& workArea,
+    int windowWidth,
+    int windowHeight,
+    const WindowPosition& fallbackPos = {0, 0});
+
+// Finds the index of the active monitor containing the given window center point.
+// Returns -1 if no monitor contains the point or if monitors is empty.
+int findActiveMonitorIndex(
+    const std::vector<MonitorWorkArea>& monitors,
+    int centerX,
+    int centerY);
+
 // Information about an available theme option
 struct ThemeOption {
     std::string id;          // "dark", "light"

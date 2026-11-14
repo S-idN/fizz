@@ -96,6 +96,55 @@ static bool drawRow(std::string_view path, ExecState state, bool selected) {
     return clicked;
 }
 
+static void centerWindowOnWorkarea(GLFWwindow* window, int width, int height) {
+    if (!window) return;
+
+    int monCount = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&monCount);
+    GLFWmonitor* activeMonitor = nullptr;
+
+    if (monitors && monCount > 0) {
+        int winX = 0, winY = 0;
+        glfwGetWindowPos(window, &winX, &winY);
+        int centerX = winX + width / 2;
+        int centerY = winY + height / 2;
+
+        std::vector<fizz::ui::MonitorWorkArea> workAreas;
+        workAreas.reserve(monCount);
+        for (int i = 0; i < monCount; ++i) {
+            int mx = 0, my = 0, mw = 0, mh = 0;
+            glfwGetMonitorWorkarea(monitors[i], &mx, &my, &mw, &mh);
+            workAreas.push_back({mx, my, mw, mh});
+        }
+
+        int activeIdx = fizz::ui::findActiveMonitorIndex(workAreas, centerX, centerY);
+        if (activeIdx >= 0 && activeIdx < monCount) {
+            activeMonitor = monitors[activeIdx];
+        } else {
+            activeMonitor = glfwGetPrimaryMonitor();
+            if (!activeMonitor) {
+                activeMonitor = monitors[0];
+            }
+        }
+    } else {
+        activeMonitor = glfwGetPrimaryMonitor();
+    }
+
+    int currentX = 0, currentY = 0;
+    glfwGetWindowPos(window, &currentX, &currentY);
+    fizz::ui::WindowPosition fallbackPos{currentX, currentY};
+
+    if (activeMonitor) {
+        int workX = 0, workY = 0, workW = 0, workH = 0;
+        glfwGetMonitorWorkarea(activeMonitor, &workX, &workY, &workW, &workH);
+        fizz::ui::MonitorWorkArea workArea{workX, workY, workW, workH};
+
+        fizz::ui::WindowPosition target = fizz::ui::calculateCenteredWindowPos(
+            workArea, width, height, fallbackPos);
+        glfwSetWindowPos(window, target.x, target.y);
+    }
+}
+
 int main() {
     signal(SIGCHLD, SIG_IGN);
     FizzConfig config = loadConfig();
@@ -124,6 +173,7 @@ int main() {
     if (!window) { fprintf(stderr, "window creation failed\n"); glfwTerminate(); return 1; }
 
     glfwSetWindowSizeLimits(window, winWidth, winHeight, winWidth, winHeight);
+    centerWindowOnWorkarea(window, winWidth, winHeight);
     glfwSetWindowUserPointer(window, &focusTracker);
     glfwSetWindowFocusCallback(window, windowFocusCallback);
 
@@ -179,6 +229,7 @@ int main() {
     appearanceCallbacks.onWindowResize = [window](int w, int h) {
         glfwSetWindowSize(window, w, h);
         glfwSetWindowSizeLimits(window, w, h, w, h);
+        centerWindowOnWorkarea(window, w, h);
     };
     appearanceCallbacks.onFontRebuild = [](const std::string& fontPath, float fontSize) {
         fizz::ui::rebuildFontAtlas(fontPath, fontSize, []() {

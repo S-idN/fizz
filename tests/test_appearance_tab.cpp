@@ -254,13 +254,19 @@ void test_appearance_headless_ui_rendering() {
 
     // Render TabBar with General tab first, followed by Appearance
     bool tabModified = false;
+    std::string capturedUiTextFrame1;
     if (ImGui::BeginTabBar("SettingsTabBar", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("General")) {
             ImGui::Text("General Settings Tab");
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Appearance")) {
+        if (ImGui::BeginTabItem("Appearance", nullptr, ImGuiTabItemFlags_SetSelected)) {
+            ImGui::LogToClipboard();
             tabModified = fizz::ui::renderAppearanceTab(config);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame1 = clip;
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -273,6 +279,13 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(drawData != nullptr);
     APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
 
+    // Verify footer summary block is completely absent from rendered Appearance tab
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Changes apply live without restart") == std::string::npos);
+
     // Frame 2: Render with explicit AppearanceCallbacks wired
     int resizeCount = 0;
     int fontRebuildCount = 0;
@@ -280,13 +293,19 @@ void test_appearance_headless_ui_rendering() {
     callbacks.onWindowResize = [&](int, int) { resizeCount++; };
     callbacks.onFontRebuild = [&](const std::string&, float) { fontRebuildCount++; };
 
+    std::string capturedUiTextFrame2;
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("settings_test_window_2", nullptr, ImGuiWindowFlags_NoDecoration);
     if (ImGui::BeginTabBar("SettingsTabBar2", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Appearance")) {
+            ImGui::LogToClipboard();
             fizz::ui::renderAppearanceTab(config, callbacks);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame2 = clip;
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -297,6 +316,12 @@ void test_appearance_headless_ui_rendering() {
     ImDrawData* drawData2 = ImGui::GetDrawData();
     APPEARANCE_TEST_ASSERT(drawData2 != nullptr);
     APPEARANCE_TEST_ASSERT(drawData2->CmdListsCount > 0);
+
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
 
     ImGui::DestroyContext(ctx);
 
@@ -711,6 +736,90 @@ void test_settings_tab_order_and_clean_footer() {
     std::cout << "[PASS] test_settings_tab_order_and_clean_footer passed.\n";
 }
 
+void test_appearance_window_centering_and_workarea() {
+    std::cout << "[TEST] Running test_appearance_window_centering_and_workarea...\n";
+
+    // 1. Exact coordinate math on primary display
+    fizz::ui::MonitorWorkArea primaryWorkArea{0, 0, 1920, 1080};
+    fizz::ui::WindowPosition pos1 = fizz::ui::calculateCenteredWindowPos(primaryWorkArea, 750, 480);
+    // (0 + (1920 - 750) / 2, 0 + (1080 - 480) / 2) = (585, 300)
+    APPEARANCE_TEST_ASSERT(pos1.x == 585);
+    APPEARANCE_TEST_ASSERT(pos1.y == 300);
+
+    // 2. Exact coordinate math on secondary monitor with panel / dock offset
+    fizz::ui::MonitorWorkArea secondaryWorkArea{1920, 32, 2560, 1408};
+    fizz::ui::WindowPosition pos2 = fizz::ui::calculateCenteredWindowPos(secondaryWorkArea, 1000, 650);
+    // (1920 + (2560 - 1000) / 2, 32 + (1408 - 650) / 2) = (1920 + 780, 32 + 379) = (2700, 411)
+    APPEARANCE_TEST_ASSERT(pos2.x == 2700);
+    APPEARANCE_TEST_ASSERT(pos2.y == 411);
+
+    // 3. Coordinate math with odd dimensions (integer floor division)
+    fizz::ui::MonitorWorkArea oddWorkArea{10, 15, 1921, 1081};
+    fizz::ui::WindowPosition pos3 = fizz::ui::calculateCenteredWindowPos(oddWorkArea, 750, 480);
+    // (10 + (1921 - 750) / 2, 15 + (1081 - 480) / 2) = (10 + 585, 15 + 300) = (595, 315)
+    APPEARANCE_TEST_ASSERT(pos3.x == 595);
+    APPEARANCE_TEST_ASSERT(pos3.y == 315);
+
+    // 4. Clamping within monitor bounds: window exact match
+    fizz::ui::MonitorWorkArea matchWorkArea{50, 50, 800, 600};
+    fizz::ui::WindowPosition posMatch = fizz::ui::calculateCenteredWindowPos(matchWorkArea, 800, 600);
+    APPEARANCE_TEST_ASSERT(posMatch.x == 50);
+    APPEARANCE_TEST_ASSERT(posMatch.y == 50);
+
+    // 5. Clamping within monitor bounds: window larger than work area width
+    fizz::ui::MonitorWorkArea smallWWorkArea{0, 0, 600, 600};
+    fizz::ui::WindowPosition posLargeW = fizz::ui::calculateCenteredWindowPos(smallWWorkArea, 750, 480);
+    // x clamps to work_x (0), y is centered (60)
+    APPEARANCE_TEST_ASSERT(posLargeW.x == 0);
+    APPEARANCE_TEST_ASSERT(posLargeW.y == 60);
+
+    // 6. Clamping within monitor bounds: window larger than work area height
+    fizz::ui::MonitorWorkArea smallHWorkArea{100, 50, 1200, 400};
+    fizz::ui::WindowPosition posLargeH = fizz::ui::calculateCenteredWindowPos(smallHWorkArea, 750, 480);
+    // x is centered (100 + (1200 - 750) / 2 = 325), y clamps to work_y (50)
+    APPEARANCE_TEST_ASSERT(posLargeH.x == 325);
+    APPEARANCE_TEST_ASSERT(posLargeH.y == 50);
+
+    // 7. Clamping within monitor bounds: window larger than work area in both dimensions
+    fizz::ui::MonitorWorkArea tinyWorkArea{200, 150, 500, 300};
+    fizz::ui::WindowPosition posTiny = fizz::ui::calculateCenteredWindowPos(tinyWorkArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posTiny.x == 200);
+    APPEARANCE_TEST_ASSERT(posTiny.y == 150);
+
+    // 8. Graceful fallback when monitor work area is unavailable (zero / negative dimensions)
+    fizz::ui::MonitorWorkArea zeroArea{0, 0, 0, 0};
+    fizz::ui::WindowPosition posZero = fizz::ui::calculateCenteredWindowPos(zeroArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posZero.x == 0);
+    APPEARANCE_TEST_ASSERT(posZero.y == 0);
+
+    fizz::ui::MonitorWorkArea negArea{50, 50, -100, -50};
+    fizz::ui::WindowPosition posNeg = fizz::ui::calculateCenteredWindowPos(negArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posNeg.x == 0);
+    APPEARANCE_TEST_ASSERT(posNeg.y == 0);
+
+    // Custom fallback position
+    fizz::ui::WindowPosition customFallback{123, 456};
+    fizz::ui::WindowPosition posCustom = fizz::ui::calculateCenteredWindowPos(zeroArea, 750, 480, customFallback);
+    APPEARANCE_TEST_ASSERT(posCustom.x == 123);
+    APPEARANCE_TEST_ASSERT(posCustom.y == 456);
+
+    // 9. Multi-monitor active monitor resolution
+    std::vector<fizz::ui::MonitorWorkArea> monitors = {
+        {0, 0, 1920, 1080},
+        {1920, 0, 2560, 1440}
+    };
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 960, 540) == 0);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 2500, 720) == 1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 1920, 0) == 1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, -100, -100) == -1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 5000, 5000) == -1);
+
+    std::vector<fizz::ui::MonitorWorkArea> emptyMonitors;
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(emptyMonitors, 960, 540) == -1);
+
+    std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -723,5 +832,6 @@ void run_appearance_tab_tests() {
     test_appearance_system_font_discovery();
     test_appearance_geometry_and_font_atomic_persistence();
     test_appearance_custom_font_and_icon_merging();
+    test_appearance_window_centering_and_workarea();
     test_settings_tab_order_and_clean_footer();
 }

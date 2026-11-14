@@ -50,20 +50,11 @@ PresetProfile getPresetProfile(PresetType type, const std::string& customHome) {
             profile.name = "Minimalist";
             profile.searchRoots = {
                 home + "/Documents",
+                home + "/Downloads",
                 home + "/Desktop",
-                home + "/Notes",
-                home + "/Music",
                 home + "/Pictures",
-                "/usr/share/applications",
-                home + "/.local/share/applications"
-            };
-            profile.ignoreRules = {};
-            break;
-
-        case PresetType::StandardDesktop:
-            profile.name = "Standard Desktop";
-            profile.searchRoots = {
-                home,
+                home + "/Music",
+                home + "/Videos",
                 "/usr/share/applications",
                 home + "/.local/share/applications"
             };
@@ -72,26 +63,58 @@ PresetProfile getPresetProfile(PresetType type, const std::string& customHome) {
             };
             break;
 
+        case PresetType::StandardDesktop:
+            profile.name = "Standard Desktop";
+            profile.searchRoots = {
+                home,
+                "/usr/share/applications"
+            };
+            profile.ignoreRules = {
+                ".cache",
+                ".git",
+                ".cargo",
+                ".rustup",
+                ".npm",
+                ".mozilla",
+                "Trash"
+            };
+            break;
+
         case PresetType::Developer:
             profile.name = "Developer";
             profile.searchRoots = {
                 home,
-                "/usr/share/applications",
-                home + "/.local/share/applications",
-                home + "/Projects",
-                home + "/Developer",
-                home + "/src"
+                "/usr/share/applications"
             };
             profile.ignoreRules = {
-                "node_modules",
-                "target",
-                "build",
+                // Python / uv
                 ".venv",
-                ".git",
+                "venv",
+                "__pycache__",
+                ".pytest_cache",
+                ".mypy_cache",
+                ".uv",
+                ".ruff_cache",
+                // Node / pnpm
+                "node_modules",
                 ".pnpm-store",
+                ".npm",
+                ".yarn",
+                // Rust
+                "target",
+                ".cargo",
+                ".rustup",
+                // Go
+                "go/pkg",
+                // VCS / Build
+                ".git",
+                "build",
                 "dist",
                 "bin",
-                "obj"
+                "obj",
+                ".cache",
+                ".idea",
+                ".vscode"
             };
             break;
 
