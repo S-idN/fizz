@@ -334,9 +334,15 @@ void test_appearance_headless_ui_rendering() {
 
     // Render TabBar with Appearance tab
     bool tabModified = false;
+    std::string capturedUiTextFrame1;
     if (ImGui::BeginTabBar("SettingsTabBar", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Appearance")) {
+            ImGui::LogToClipboard();
             tabModified = fizz::ui::renderAppearanceTab(config);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame1 = clip;
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("General")) {
@@ -353,6 +359,13 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(drawData != nullptr);
     APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
 
+    // Verify footer summary block is completely absent from rendered Appearance tab
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Changes apply live without restart") == std::string::npos);
+
     // Frame 2: Render with explicit AppearanceCallbacks wired
     int resizeCount = 0;
     int fontRebuildCount = 0;
@@ -360,13 +373,19 @@ void test_appearance_headless_ui_rendering() {
     callbacks.onWindowResize = [&](int, int) { resizeCount++; };
     callbacks.onFontRebuild = [&](const std::string&, float) { fontRebuildCount++; };
 
+    std::string capturedUiTextFrame2;
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("settings_test_window_2", nullptr, ImGuiWindowFlags_NoDecoration);
     if (ImGui::BeginTabBar("SettingsTabBar2", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Appearance")) {
+            ImGui::LogToClipboard();
             fizz::ui::renderAppearanceTab(config, callbacks);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame2 = clip;
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -377,6 +396,12 @@ void test_appearance_headless_ui_rendering() {
     ImDrawData* drawData2 = ImGui::GetDrawData();
     APPEARANCE_TEST_ASSERT(drawData2 != nullptr);
     APPEARANCE_TEST_ASSERT(drawData2->CmdListsCount > 0);
+
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
 
     ImGui::DestroyContext(ctx);
 
