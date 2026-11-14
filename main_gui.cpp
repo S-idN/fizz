@@ -210,10 +210,7 @@ int main() {
         centerWindowOnWorkarea(window, w, h);
     };
     appearanceCallbacks.onFontRebuild = [](const std::string& fontPath, float fontSize) {
-        fizz::ui::rebuildFontAtlas(fontPath, fontSize, []() {
-            ImGui_ImplOpenGL3_DestroyFontsTexture();
-            ImGui_ImplOpenGL3_CreateFontsTexture();
-        });
+        fizz::ui::queueFontRebuild(fontPath, fontSize);
     };
 
     while (!glfwWindowShouldClose(window)) {
@@ -377,6 +374,12 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
+
+        // Frame boundary: execute any deferred font atlas rebuild outside active draw lists
+        fizz::ui::executePendingFontRebuild([]() {
+            ImGui_ImplOpenGL3_DestroyFontsTexture();
+            ImGui_ImplOpenGL3_CreateFontsTexture();
+        });
     }
 
     generalTab.flushPendingSave(config);

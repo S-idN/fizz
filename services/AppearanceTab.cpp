@@ -16,6 +16,10 @@ namespace fizz::ui {
 
 static std::function<void(int, int)> s_globalWindowResizeCallback = nullptr;
 static std::function<void(const std::string&, float)> s_globalFontRebuildCallback = nullptr;
+static std::function<void()> s_globalGpuTextureReloadCallback = nullptr;
+
+static bool s_hasPendingFontRebuild = false;
+static FontRebuildRequest s_pendingFontRebuild{};
 
 int clampWindowWidth(int width) {
     return std::clamp(width, kMinWidth, kMaxWidth);
@@ -109,6 +113,42 @@ void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
 
 void setFontRebuildCallback(std::function<void(const std::string& fontPath, float fontSize)> cb) {
     s_globalFontRebuildCallback = std::move(cb);
+}
+
+void setGpuTextureReloadCallback(std::function<void()> cb) {
+    s_globalGpuTextureReloadCallback = std::move(cb);
+}
+
+void queueFontRebuild(const std::string& fontPath, float fontSize) {
+    s_pendingFontRebuild.fontPath = fontPath;
+    s_pendingFontRebuild.fontSize = clampFontSize(fontSize);
+    s_hasPendingFontRebuild = true;
+}
+
+bool hasPendingFontRebuild() {
+    return s_hasPendingFontRebuild;
+}
+
+const FontRebuildRequest& getPendingFontRebuild() {
+    return s_pendingFontRebuild;
+}
+
+void clearPendingFontRebuild() {
+    s_hasPendingFontRebuild = false;
+    s_pendingFontRebuild = {};
+}
+
+bool executePendingFontRebuild(const std::function<void()>& onGpuTextureReload,
+                               ImFontAtlas* atlas) {
+    if (!s_hasPendingFontRebuild) {
+        return false;
+    }
+    std::string path = std::move(s_pendingFontRebuild.fontPath);
+    float size = s_pendingFontRebuild.fontSize;
+    clearPendingFontRebuild();
+
+    auto reloadCb = onGpuTextureReload ? onGpuTextureReload : s_globalGpuTextureReloadCallback;
+    return rebuildFontAtlas(path, size, reloadCb, atlas);
 }
 
 bool setWindowSize(FizzConfig& config, int width, int height,
@@ -272,11 +312,16 @@ bool setFontSize(FizzConfig& config, float fontSize,
 
     config.font_size = clamped;
 
+    ImGuiContext* g = ImGui::GetCurrentContext();
+    if (g && g->WithinFrameScope) {
+        queueFontRebuild(config.font_path, clamped);
+    }
+
     if (onFontRebuild) {
         onFontRebuild(config.font_path, clamped);
     } else if (s_globalFontRebuildCallback) {
         s_globalFontRebuildCallback(config.font_path, clamped);
-    } else {
+    } else if (!g || !g->WithinFrameScope) {
         rebuildFontAtlas(config.font_path, clamped);
     }
 
@@ -292,11 +337,16 @@ bool setFontPath(FizzConfig& config, const std::string& fontPath,
 
     config.font_path = fontPath;
 
+    ImGuiContext* g = ImGui::GetCurrentContext();
+    if (g && g->WithinFrameScope) {
+        queueFontRebuild(config.font_path, config.font_size);
+    }
+
     if (onFontRebuild) {
         onFontRebuild(config.font_path, config.font_size);
     } else if (s_globalFontRebuildCallback) {
         s_globalFontRebuildCallback(config.font_path, config.font_size);
-    } else {
+    } else if (!g || !g->WithinFrameScope) {
         rebuildFontAtlas(config.font_path, config.font_size);
     }
 
@@ -513,11 +563,14 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     ImGui::TextColored(theme::getActiveAccent(), "Typography & Font");
     ImGui::Spacing();
 
-    float fontSize = config.font_size;
+    float fontSize = std::round(clampFontSize(config.font_size));
     ImGui::SetNextItemWidth(300.0f);
-    if (ImGui::SliderFloat("Font Size##font_sz", &fontSize, kMinFontSize, kMaxFontSize, "%.1f px")) {
-        if (setFontSize(config, fontSize, callbacks.onFontRebuild)) {
-            modified = true;
+    if (ImGui::SliderFloat("Font Size##font_sz", &fontSize, kMinFontSize, kMaxFontSize, "%.0f px")) {
+        float rounded = std::round(clampFontSize(fontSize));
+        if (std::fabs(config.font_size - rounded) >= 0.5f) {
+            if (setFontSize(config, rounded, callbacks.onFontRebuild)) {
+                modified = true;
+            }
         }
     }
     ImGui::SameLine();
