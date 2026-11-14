@@ -73,6 +73,36 @@ int findActiveMonitorIndex(
     return -1;
 }
 
+CenteredResizeResult calculateResizeCentering(
+    const std::vector<MonitorWorkArea>& monitors,
+    const WindowPosition& currentPos,
+    int currentWidth,
+    int currentHeight,
+    int newWidth,
+    int newHeight) {
+    int clampedW = clampWindowWidth(newWidth);
+    int clampedH = clampWindowHeight(newHeight);
+
+    if (monitors.empty()) {
+        return {currentPos, -1};
+    }
+
+    int curW = currentWidth > 0 ? currentWidth : clampedW;
+    int curH = currentHeight > 0 ? currentHeight : clampedH;
+    int centerX = currentPos.x + curW / 2;
+    int centerY = currentPos.y + curH / 2;
+
+    int activeIdx = findActiveMonitorIndex(monitors, centerX, centerY);
+    if (activeIdx < 0 || activeIdx >= static_cast<int>(monitors.size())) {
+        activeIdx = 0; // fallback to primary monitor
+    }
+
+    const auto& workArea = monitors[activeIdx];
+    WindowPosition target = calculateCenteredWindowPos(workArea, clampedW, clampedH, currentPos);
+
+    return {target, activeIdx};
+}
+
 void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
     s_globalWindowResizeCallback = std::move(cb);
 }
@@ -102,6 +132,42 @@ bool setWindowSize(FizzConfig& config, int width, int height,
 
     saveConfig(config);
     return true;
+}
+
+const std::vector<WindowPresetInfo>& getWindowSizePresets() {
+    static const std::vector<WindowPresetInfo> s_presets = {
+        {WindowSizePreset::Default, "default", "Default (750 x 480)", kDefaultWindowWidth, kDefaultWindowHeight},
+        {WindowSizePreset::Compact, "compact", "Compact (600 x 400)", kCompactWindowWidth, kCompactWindowHeight},
+        {WindowSizePreset::Large,   "large",   "Large (1000 x 650)",  kLargeWindowWidth,   kLargeWindowHeight}
+    };
+    return s_presets;
+}
+
+bool applyWindowSizePreset(FizzConfig& config, WindowSizePreset preset,
+                           const std::function<void(int, int)>& onResize) {
+    switch (preset) {
+        case WindowSizePreset::Default:
+            return setWindowSize(config, kDefaultWindowWidth, kDefaultWindowHeight, onResize);
+        case WindowSizePreset::Compact:
+            return setWindowSize(config, kCompactWindowWidth, kCompactWindowHeight, onResize);
+        case WindowSizePreset::Large:
+            return setWindowSize(config, kLargeWindowWidth, kLargeWindowHeight, onResize);
+    }
+    return false;
+}
+
+bool applyWindowSizePreset(FizzConfig& config, std::string_view presetId,
+                           const std::function<void(int, int)>& onResize) {
+    std::string lower(presetId);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lower == "compact") {
+        return applyWindowSizePreset(config, WindowSizePreset::Compact, onResize);
+    } else if (lower == "large") {
+        return applyWindowSizePreset(config, WindowSizePreset::Large, onResize);
+    } else {
+        return applyWindowSizePreset(config, WindowSizePreset::Default, onResize);
+    }
 }
 
 bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
@@ -418,19 +484,19 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
 
     ImGui::Spacing();
     if (ImGui::SmallButton("Default (750 x 480)##preset_default")) {
-        if (setWindowSize(config, 750, 480, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Default, callbacks.onWindowResize)) {
             modified = true;
         }
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Compact (600 x 400)##preset_compact")) {
-        if (setWindowSize(config, 600, 400, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Compact, callbacks.onWindowResize)) {
             modified = true;
         }
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Large (1000 x 650)##preset_large")) {
-        if (setWindowSize(config, 1000, 650, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Large, callbacks.onWindowResize)) {
             modified = true;
         }
     }

@@ -405,6 +405,14 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
 
+    // Verify window geometry sliders and preset buttons are rendered in Appearance tab
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Geometry") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Width") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Height") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Default (750 x 480)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Compact (600 x 400)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Large (1000 x 650)") != std::string::npos);
+
     ImGui::DestroyContext(ctx);
 
     std::cout << "[PASS] test_appearance_headless_ui_rendering passed.\n";
@@ -893,6 +901,230 @@ void test_appearance_window_centering_and_workarea() {
     std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
 }
 
+void test_appearance_window_size_presets() {
+    std::cout << "[TEST] Running test_appearance_window_size_presets...\n";
+
+    const auto& presets = fizz::ui::getWindowSizePresets();
+    APPEARANCE_TEST_ASSERT(presets.size() == 3);
+    APPEARANCE_TEST_ASSERT(presets[0].preset == fizz::ui::WindowSizePreset::Default);
+    APPEARANCE_TEST_ASSERT(presets[0].id == "default");
+    APPEARANCE_TEST_ASSERT(presets[0].width == 750);
+    APPEARANCE_TEST_ASSERT(presets[0].height == 480);
+
+    APPEARANCE_TEST_ASSERT(presets[1].preset == fizz::ui::WindowSizePreset::Compact);
+    APPEARANCE_TEST_ASSERT(presets[1].id == "compact");
+    APPEARANCE_TEST_ASSERT(presets[1].width == 600);
+    APPEARANCE_TEST_ASSERT(presets[1].height == 400);
+
+    APPEARANCE_TEST_ASSERT(presets[2].preset == fizz::ui::WindowSizePreset::Large);
+    APPEARANCE_TEST_ASSERT(presets[2].id == "large");
+    APPEARANCE_TEST_ASSERT(presets[2].width == 1000);
+    APPEARANCE_TEST_ASSERT(presets[2].height == 650);
+
+    FizzConfig config = FizzConfig::defaults();
+    APPEARANCE_TEST_ASSERT(config.window_width == 750);
+    APPEARANCE_TEST_ASSERT(config.window_height == 480);
+
+    int cbWidth = 0, cbHeight = 0, cbCount = 0;
+    auto resizeCb = [&](int w, int h) {
+        cbWidth = w;
+        cbHeight = h;
+        cbCount++;
+    };
+
+    // 1. Redundant default preset -> no change, callback not fired
+    bool redundantDefault = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Default, resizeCb);
+    APPEARANCE_TEST_ASSERT(!redundantDefault);
+    APPEARANCE_TEST_ASSERT(cbCount == 0);
+
+    // 2. Apply Compact preset
+    bool changedCompact = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCb);
+    APPEARANCE_TEST_ASSERT(changedCompact);
+    APPEARANCE_TEST_ASSERT(config.window_width == 600);
+    APPEARANCE_TEST_ASSERT(config.window_height == 400);
+    APPEARANCE_TEST_ASSERT(cbCount == 1);
+    APPEARANCE_TEST_ASSERT(cbWidth == 600);
+    APPEARANCE_TEST_ASSERT(cbHeight == 400);
+
+    // Redundant compact call
+    APPEARANCE_TEST_ASSERT(!fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCb));
+    APPEARANCE_TEST_ASSERT(cbCount == 1);
+
+    // 3. Apply Large preset
+    bool changedLarge = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Large, resizeCb);
+    APPEARANCE_TEST_ASSERT(changedLarge);
+    APPEARANCE_TEST_ASSERT(config.window_width == 1000);
+    APPEARANCE_TEST_ASSERT(config.window_height == 650);
+    APPEARANCE_TEST_ASSERT(cbCount == 2);
+    APPEARANCE_TEST_ASSERT(cbWidth == 1000);
+    APPEARANCE_TEST_ASSERT(cbHeight == 650);
+
+    // 4. Apply Default preset via string identifier overload
+    bool changedDefaultStr = fizz::ui::applyWindowSizePreset(config, "default", resizeCb);
+    APPEARANCE_TEST_ASSERT(changedDefaultStr);
+    APPEARANCE_TEST_ASSERT(config.window_width == 750);
+    APPEARANCE_TEST_ASSERT(config.window_height == 480);
+    APPEARANCE_TEST_ASSERT(cbCount == 3);
+    APPEARANCE_TEST_ASSERT(cbWidth == 750);
+    APPEARANCE_TEST_ASSERT(cbHeight == 480);
+
+    // 5. String identifier overload for compact and large
+    APPEARANCE_TEST_ASSERT(fizz::ui::applyWindowSizePreset(config, "compact", resizeCb));
+    APPEARANCE_TEST_ASSERT(cbWidth == 600 && cbHeight == 400);
+    APPEARANCE_TEST_ASSERT(cbCount == 4);
+
+    APPEARANCE_TEST_ASSERT(fizz::ui::applyWindowSizePreset(config, "large", resizeCb));
+    APPEARANCE_TEST_ASSERT(cbWidth == 1000 && cbHeight == 650);
+    APPEARANCE_TEST_ASSERT(cbCount == 5);
+
+    std::cout << "[PASS] test_appearance_window_size_presets passed.\n";
+}
+
+void test_appearance_live_resize_centering() {
+    std::cout << "[TEST] Running test_appearance_live_resize_centering...\n";
+
+    // 1. Single monitor: Primary display 1920x1080
+    std::vector<fizz::ui::MonitorWorkArea> singleMonitor = {
+        {0, 0, 1920, 1080}
+    };
+
+    // Initial startup at Default 750x480
+    fizz::ui::WindowPosition initialPos{585, 300}; // (1920-750)/2, (1080-480)/2
+
+    // Resize to Large (1000x650)
+    auto resLarge = fizz::ui::calculateResizeCentering(
+        singleMonitor, initialPos, 750, 480, 1000, 650);
+    APPEARANCE_TEST_ASSERT(resLarge.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resLarge.position.x == 460); // (1920 - 1000) / 2
+    APPEARANCE_TEST_ASSERT(resLarge.position.y == 215); // (1080 - 650) / 2
+    // Verify window center matches monitor center (960, 540)
+    APPEARANCE_TEST_ASSERT(resLarge.position.x + 1000 / 2 == 960);
+    APPEARANCE_TEST_ASSERT(resLarge.position.y + 650 / 2 == 215 + 325); // 540
+
+    // Resize from Large to Compact (600x400)
+    auto resCompact = fizz::ui::calculateResizeCentering(
+        singleMonitor, resLarge.position, 1000, 650, 600, 400);
+    APPEARANCE_TEST_ASSERT(resCompact.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resCompact.position.x == 660); // (1920 - 600) / 2
+    APPEARANCE_TEST_ASSERT(resCompact.position.y == 340); // (1080 - 400) / 2
+    APPEARANCE_TEST_ASSERT(resCompact.position.x + 600 / 2 == 960);
+    APPEARANCE_TEST_ASSERT(resCompact.position.y + 400 / 2 == 540);
+
+    // Resize back to Default (750x480)
+    auto resDefault = fizz::ui::calculateResizeCentering(
+        singleMonitor, resCompact.position, 600, 400, 750, 480);
+    APPEARANCE_TEST_ASSERT(resDefault.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resDefault.position.x == 585);
+    APPEARANCE_TEST_ASSERT(resDefault.position.y == 300);
+
+    // Slider adjustments: incremental changes do not cause center drift
+    fizz::ui::WindowPosition curPos = resDefault.position;
+    int curW = 750;
+    int curH = 480;
+    for (int nextW = 760; nextW <= 900; nextW += 10) {
+        auto resStep = fizz::ui::calculateResizeCentering(
+            singleMonitor, curPos, curW, curH, nextW, curH);
+        APPEARANCE_TEST_ASSERT(resStep.monitorIndex == 0);
+        APPEARANCE_TEST_ASSERT(resStep.position.x == (1920 - nextW) / 2);
+        // Center point is always 960
+        APPEARANCE_TEST_ASSERT(resStep.position.x + nextW / 2 == 960);
+        curPos = resStep.position;
+        curW = nextW;
+    }
+
+    // 2. Multi-monitor setup with panel offset on secondary monitor
+    std::vector<fizz::ui::MonitorWorkArea> dualMonitors = {
+        {0, 0, 1920, 1080},
+        {1920, 32, 2560, 1408} // Secondary monitor: top panel of 32px
+    };
+
+    // Window initially centered on secondary monitor at Default 750x480
+    // Secondary center: x = 1920 + 2560/2 = 3200, y = 32 + 1408/2 = 736
+    fizz::ui::WindowPosition secInitialPos{1920 + (2560 - 750) / 2, 32 + (1408 - 480) / 2}; // {2825, 496}
+    APPEARANCE_TEST_ASSERT(secInitialPos.x == 2825);
+    APPEARANCE_TEST_ASSERT(secInitialPos.y == 496);
+
+    // Resize to Large on secondary monitor -> stays on secondary monitor without hopping!
+    auto resSecLarge = fizz::ui::calculateResizeCentering(
+        dualMonitors, secInitialPos, 750, 480, 1000, 650);
+    APPEARANCE_TEST_ASSERT(resSecLarge.monitorIndex == 1);
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.x == 1920 + (2560 - 1000) / 2); // 2700
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.y == 32 + (1408 - 650) / 2);    // 411
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.x + 1000 / 2 == 3200);
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.y + 650 / 2 == 411 + 325); // 736
+
+    // Resize to Compact on secondary monitor
+    auto resSecCompact = fizz::ui::calculateResizeCentering(
+        dualMonitors, resSecLarge.position, 1000, 650, 600, 400);
+    APPEARANCE_TEST_ASSERT(resSecCompact.monitorIndex == 1);
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.x == 1920 + (2560 - 600) / 2); // 2900
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.y == 32 + (1408 - 400) / 2);    // 536
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.x + 600 / 2 == 3200);
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.y + 400 / 2 == 736);
+
+    // 3. Coordinate clamping preventing window moving off-screen
+    std::vector<fizz::ui::MonitorWorkArea> smallMonitors = {
+        {50, 50, 800, 600}
+    };
+    // If user sets size to 1600x1200 on 800x600 display, coordinates clamp to monitor top-left
+    auto resOverflow = fizz::ui::calculateResizeCentering(
+        smallMonitors, {100, 100}, 600, 400, 1600, 1200);
+    APPEARANCE_TEST_ASSERT(resOverflow.position.x == 50);
+    APPEARANCE_TEST_ASSERT(resOverflow.position.y == 50);
+
+    // Window dimensions outside [kMinWidth..kMaxWidth] are clamped before centering
+    auto resUnderflow = fizz::ui::calculateResizeCentering(
+        singleMonitor, {585, 300}, 750, 480, 200, 100);
+    // 200 clamped to 500, 100 clamped to 320 -> (1920-500)/2 = 710, (1080-320)/2 = 380
+    APPEARANCE_TEST_ASSERT(resUnderflow.position.x == 710);
+    APPEARANCE_TEST_ASSERT(resUnderflow.position.y == 380);
+
+    // 4. Graceful handling of empty or zero-sized monitors
+    std::vector<fizz::ui::MonitorWorkArea> emptyMonitors;
+    auto resEmpty = fizz::ui::calculateResizeCentering(
+        emptyMonitors, {123, 456}, 750, 480, 800, 500);
+    APPEARANCE_TEST_ASSERT(resEmpty.position.x == 123);
+    APPEARANCE_TEST_ASSERT(resEmpty.position.y == 456);
+    APPEARANCE_TEST_ASSERT(resEmpty.monitorIndex == -1);
+
+    // 5. End-to-end simulated callback loop with AppearanceTab preset buttons and sliders
+    struct MockWindow {
+        fizz::ui::WindowPosition pos{585, 300};
+        int width = 750;
+        int height = 480;
+    } mockWin;
+
+    auto resizeCallback = [&](int newW, int newH) {
+        auto res = fizz::ui::calculateResizeCentering(
+            singleMonitor, mockWin.pos, mockWin.width, mockWin.height, newW, newH);
+        mockWin.pos = res.position;
+        mockWin.width = newW;
+        mockWin.height = newH;
+    };
+
+    FizzConfig config = FizzConfig::defaults();
+    // Preset: Compact
+    fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 600 && mockWin.height == 400);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == 660 && mockWin.pos.y == 340);
+    APPEARANCE_TEST_ASSERT(config.window_width == 600 && config.window_height == 400);
+
+    // Preset: Large
+    fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Large, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 1000 && mockWin.height == 650);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == 460 && mockWin.pos.y == 215);
+    APPEARANCE_TEST_ASSERT(config.window_width == 1000 && config.window_height == 650);
+
+    // Slider: Width 820, Height 500
+    fizz::ui::setWindowSize(config, 820, 500, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 820 && mockWin.height == 500);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == (1920 - 820) / 2); // 550
+    APPEARANCE_TEST_ASSERT(mockWin.pos.y == (1080 - 500) / 2); // 290
+    APPEARANCE_TEST_ASSERT(config.window_width == 820 && config.window_height == 500);
+
+    std::cout << "[PASS] test_appearance_live_resize_centering passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -900,6 +1132,8 @@ void run_appearance_tab_tests() {
     test_appearance_atomic_config_persistence();
     test_appearance_headless_ui_rendering();
     test_appearance_window_geometry_clamping_and_callbacks();
+    test_appearance_window_size_presets();
+    test_appearance_live_resize_centering();
     test_appearance_font_size_clamping();
     test_appearance_dynamic_font_atlas_rebuild_and_safety();
     test_appearance_system_font_discovery();
