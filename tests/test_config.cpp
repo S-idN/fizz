@@ -542,15 +542,42 @@ void test_config_bounded_fields_and_enum_fallbacks() {
     CONFIG_TEST_ASSERT(invalidAccentCfg.accent == "blue");
     CONFIG_TEST_ASSERT(invalidAccentCfg.window_height == 500);
 
-    // 3b. Verify all 10 curated accents and aliases parse properly
-    for (const auto& accName : {"rose", "indigo", "cyan", "sunset", "lime", "coral", "orange"}) {
-        fs::path newAccFile = tempDir / (std::string(accName) + ".conf");
+    // 3b. Verify all 10 curated accents and aliases parse and normalize properly
+    const std::vector<std::pair<std::string, std::string>> accentCases = {
+        {"blue", "blue"},
+        {"emerald", "emerald"},
+        {"purple", "purple"},
+        {"amber", "amber"},
+        {"crimson", "crimson"},
+        {"rose", "rose"},
+        {"indigo", "indigo"},
+        {"cyan", "cyan"},
+        {"sunset", "sunset"},
+        {"lime", "lime"},
+        {"nord cyan", "cyan"},
+        {"electric indigo", "indigo"},
+        {"coral", "rose"},
+        {"rose / coral", "rose"},
+        {"orange", "sunset"},
+        {"sunset orange", "sunset"},
+        {"green", "emerald"},
+        {"emerald green", "emerald"},
+        {"red", "crimson"},
+        {"neon lime", "lime"},
+        {"adwaita blue", "blue"},
+        {"\"Nord Cyan\"", "cyan"},
+        {"  Electric Indigo  ", "indigo"}
+    };
+
+    int caseIdx = 0;
+    for (const auto& [inputVal, expectedCanonical] : accentCases) {
+        fs::path newAccFile = tempDir / ("accent_test_" + std::to_string(++caseIdx) + ".conf");
         {
             std::ofstream out(newAccFile);
-            out << "accent = " << accName << "\n";
+            out << "accent = " << inputVal << "\n";
         }
         FizzConfig accCfg = loadConfig(newAccFile.string());
-        CONFIG_TEST_ASSERT(accCfg.accent == accName);
+        CONFIG_TEST_ASSERT(accCfg.accent == expectedCanonical);
     }
 
     // 4. Window width clamping (bounds: 500 to 1600)

@@ -198,10 +198,6 @@ CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
     if (!path.empty() && path.back() == '/') {
         return {getCategoryBadgeLabel("folder"), theme::Palette::kTagYellow};
     }
-    std::error_code ec;
-    if (!path.empty() && std::filesystem::is_directory(path, ec)) {
-        return {getCategoryBadgeLabel("folder"), theme::Palette::kTagYellow};
-    }
 
     std::string_view cat = classifyPath(path, state);
     if (cat.empty()) {

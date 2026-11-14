@@ -1643,12 +1643,13 @@ void test_appearance_deferred_font_rebuild_and_integer_slider() {
     ImGui::DestroyContext(ctx);
 
     // 5. Source code verification:
-    // Verify AppearanceTab.cpp uses "%.0f px" slider formatting
+    // Verify AppearanceTab.cpp uses discrete integer slider with "%d px" formatting
     fs::path tabPath = fs::path(__FILE__).parent_path().parent_path() / "services" / "AppearanceTab.cpp";
     if (fs::exists(tabPath)) {
         std::ifstream in(tabPath);
         std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        APPEARANCE_TEST_ASSERT(src.find("\"%.0f px\"") != std::string::npos);
+        APPEARANCE_TEST_ASSERT(src.find("\"%d px\"") != std::string::npos);
+        APPEARANCE_TEST_ASSERT(src.find("SliderInt") != std::string::npos);
         APPEARANCE_TEST_ASSERT(src.find("\"%.1f px\"") == std::string::npos);
     }
 
