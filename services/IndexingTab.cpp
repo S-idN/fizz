@@ -129,6 +129,35 @@ PresetProfile getPresetProfile(PresetType type, const std::string& customHome) {
     return profile;
 }
 
+std::string getPresetTooltipText(PresetType type, const std::string& customHome) {
+    PresetProfile profile = getPresetProfile(type, customHome);
+    std::string tooltip;
+
+    tooltip += "Includes (Search Roots):\n";
+    if (profile.searchRoots.empty()) {
+        tooltip += "  • (none)\n";
+    } else {
+        for (const auto& root : profile.searchRoots) {
+            tooltip += "  • " + root + "\n";
+        }
+    }
+
+    tooltip += "\nExcludes (Ignore Rules):\n";
+    if (profile.ignoreRules.empty()) {
+        tooltip += "  • (none)\n";
+    } else {
+        for (const auto& rule : profile.ignoreRules) {
+            tooltip += "  • " + rule + "\n";
+        }
+    }
+
+    if (type == PresetType::GodMode) {
+        tooltip += "\n⚠️ Warning: Full root traversal ('/') indexes the entire filesystem and places heavy demand on kernel inotify watches.";
+    }
+
+    return tooltip;
+}
+
 std::string normalizeSearchRoot(std::string_view rawPath, const std::string& customHome) {
     std::string path = trim(rawPath);
     if (path.empty()) return "";
@@ -444,22 +473,33 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     if (ImGui::Button("Minimalist##btn_preset_minimalist")) {
         state.requestApplyPreset(PresetType::Minimalist);
     }
+    state.presetButtonMin[0] = ImGui::GetItemRectMin();
+    state.presetButtonMax[0] = ImGui::GetItemRectMax();
+    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::Minimalist).c_str());
+
     ImGui::SameLine();
     if (ImGui::Button("Standard Desktop##btn_preset_standard")) {
         state.requestApplyPreset(PresetType::StandardDesktop);
     }
+    state.presetButtonMin[1] = ImGui::GetItemRectMin();
+    state.presetButtonMax[1] = ImGui::GetItemRectMax();
+    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::StandardDesktop).c_str());
+
     ImGui::SameLine();
     if (ImGui::Button("Developer##btn_preset_developer")) {
         state.requestApplyPreset(PresetType::Developer);
     }
+    state.presetButtonMin[2] = ImGui::GetItemRectMin();
+    state.presetButtonMax[2] = ImGui::GetItemRectMax();
+    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::Developer).c_str());
+
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.95f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.25f, 0.25f, 1.0f));
-    if (ImGui::Button("God Mode##btn_preset_god_mode")) {
+    if (ImGui::Button("⚠️ God Mode##btn_preset_god_mode")) {
         state.requestApplyPreset(PresetType::GodMode);
     }
-    ImGui::PopStyleColor(3);
+    state.presetButtonMin[3] = ImGui::GetItemRectMin();
+    state.presetButtonMax[3] = ImGui::GetItemRectMax();
+    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::GodMode).c_str());
 
     ImGui::Spacing();
     ImGui::Separator();
