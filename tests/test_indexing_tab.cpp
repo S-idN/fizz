@@ -3,6 +3,9 @@
 #include <cassert>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <set>
+#include <algorithm>
 #include "services/IndexingTab.h"
 
 #define INDEXING_TEST_ASSERT(cond) \
@@ -333,57 +336,89 @@ void test_preset_profile_contents() {
     std::cout << "[TEST] Running test_preset_profile_contents...\n";
     const std::string fakeHome = "/home/alice";
 
+    auto checkNoDuplicates = [](const std::vector<std::string>& vec, const std::string& context) {
+        std::set<std::string> seen;
+        for (const auto& item : vec) {
+            INDEXING_TEST_ASSERT(seen.insert(item).second);
+        }
+    };
+
     // 1. Minimalist Profile
+    // Search Roots = user media/document folders (~/Documents, ~/Downloads, ~/Desktop, ~/Pictures, ~/Music, ~/Videos, /usr/share/applications, ~/.local/share/applications); Ignore Rules = .cache.
     auto minProfile = fizz::getPresetProfile(fizz::PresetType::Minimalist, fakeHome);
     INDEXING_TEST_ASSERT(minProfile.name == "Minimalist");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots.size() == 7);
+    INDEXING_TEST_ASSERT(minProfile.searchRoots.size() == 8);
     INDEXING_TEST_ASSERT(minProfile.searchRoots[0] == "/home/alice/Documents");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[1] == "/home/alice/Desktop");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[2] == "/home/alice/Notes");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[3] == "/home/alice/Music");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[4] == "/home/alice/Pictures");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[5] == "/usr/share/applications");
-    INDEXING_TEST_ASSERT(minProfile.searchRoots[6] == "/home/alice/.local/share/applications");
-    INDEXING_TEST_ASSERT(minProfile.ignoreRules.empty());
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[1] == "/home/alice/Downloads");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[2] == "/home/alice/Desktop");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[3] == "/home/alice/Pictures");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[4] == "/home/alice/Music");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[5] == "/home/alice/Videos");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[6] == "/usr/share/applications");
+    INDEXING_TEST_ASSERT(minProfile.searchRoots[7] == "/home/alice/.local/share/applications");
+    checkNoDuplicates(minProfile.searchRoots, "Minimalist searchRoots");
+    INDEXING_TEST_ASSERT(minProfile.ignoreRules.size() == 1);
+    INDEXING_TEST_ASSERT(minProfile.ignoreRules[0] == ".cache");
+    checkNoDuplicates(minProfile.ignoreRules, "Minimalist ignoreRules");
 
     // 2. Standard Desktop Profile
+    // Search Roots = ~ and /usr/share/applications (no redundant nested paths); Ignore Rules = .cache, .git, .cargo, .rustup, .npm, .mozilla, Trash
     auto stdProfile = fizz::getPresetProfile(fizz::PresetType::StandardDesktop, fakeHome);
     INDEXING_TEST_ASSERT(stdProfile.name == "Standard Desktop");
-    INDEXING_TEST_ASSERT(stdProfile.searchRoots.size() == 3);
+    INDEXING_TEST_ASSERT(stdProfile.searchRoots.size() == 2);
     INDEXING_TEST_ASSERT(stdProfile.searchRoots[0] == "/home/alice");
     INDEXING_TEST_ASSERT(stdProfile.searchRoots[1] == "/usr/share/applications");
-    INDEXING_TEST_ASSERT(stdProfile.searchRoots[2] == "/home/alice/.local/share/applications");
-    INDEXING_TEST_ASSERT(stdProfile.ignoreRules.size() == 1);
-    INDEXING_TEST_ASSERT(stdProfile.ignoreRules[0] == ".cache");
+    checkNoDuplicates(stdProfile.searchRoots, "StandardDesktop searchRoots");
+    // Ensure nested paths are absent
+    INDEXING_TEST_ASSERT(std::find(stdProfile.searchRoots.begin(), stdProfile.searchRoots.end(), "/home/alice/.local/share/applications") == stdProfile.searchRoots.end());
+
+    INDEXING_TEST_ASSERT(stdProfile.ignoreRules.size() == 7);
+    std::vector<std::string> expectedStdRules = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+    for (const auto& rule : expectedStdRules) {
+        INDEXING_TEST_ASSERT(std::find(stdProfile.ignoreRules.begin(), stdProfile.ignoreRules.end(), rule) != stdProfile.ignoreRules.end());
+    }
+    checkNoDuplicates(stdProfile.ignoreRules, "StandardDesktop ignoreRules");
 
     // 3. Developer Profile
+    // Search Roots = ~ and /usr/share/applications; Ignore Rules = comprehensive toolchain exclusions
     auto devProfile = fizz::getPresetProfile(fizz::PresetType::Developer, fakeHome);
     INDEXING_TEST_ASSERT(devProfile.name == "Developer");
-    INDEXING_TEST_ASSERT(devProfile.searchRoots.size() == 6);
+    INDEXING_TEST_ASSERT(devProfile.searchRoots.size() == 2);
     INDEXING_TEST_ASSERT(devProfile.searchRoots[0] == "/home/alice");
     INDEXING_TEST_ASSERT(devProfile.searchRoots[1] == "/usr/share/applications");
-    INDEXING_TEST_ASSERT(devProfile.searchRoots[2] == "/home/alice/.local/share/applications");
-    INDEXING_TEST_ASSERT(devProfile.searchRoots[3] == "/home/alice/Projects");
-    INDEXING_TEST_ASSERT(devProfile.searchRoots[4] == "/home/alice/Developer");
-    INDEXING_TEST_ASSERT(devProfile.searchRoots[5] == "/home/alice/src");
+    checkNoDuplicates(devProfile.searchRoots, "Developer searchRoots");
+    // Ensure no redundant nested paths
+    INDEXING_TEST_ASSERT(std::find(devProfile.searchRoots.begin(), devProfile.searchRoots.end(), "/home/alice/.local/share/applications") == devProfile.searchRoots.end());
+    INDEXING_TEST_ASSERT(std::find(devProfile.searchRoots.begin(), devProfile.searchRoots.end(), "/home/alice/Projects") == devProfile.searchRoots.end());
+    INDEXING_TEST_ASSERT(std::find(devProfile.searchRoots.begin(), devProfile.searchRoots.end(), "/home/alice/Developer") == devProfile.searchRoots.end());
+    INDEXING_TEST_ASSERT(std::find(devProfile.searchRoots.begin(), devProfile.searchRoots.end(), "/home/alice/src") == devProfile.searchRoots.end());
 
-    // Ignored: node_modules, target, build, .venv, .git, .pnpm-store, dist, bin, obj
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules.size() == 9);
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[0] == "node_modules");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[1] == "target");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[2] == "build");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[3] == ".venv");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[4] == ".git");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[5] == ".pnpm-store");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[6] == "dist");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[7] == "bin");
-    INDEXING_TEST_ASSERT(devProfile.ignoreRules[8] == "obj");
+    std::vector<std::string> expectedDevRules = {
+        // Python/uv
+        ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".uv", ".ruff_cache",
+        // Node/pnpm
+        "node_modules", ".pnpm-store", ".npm", ".yarn",
+        // Rust
+        "target", ".cargo", ".rustup",
+        // Go
+        "go/pkg",
+        // VCS/Build
+        ".git", "build", "dist", "bin", "obj", ".cache", ".idea", ".vscode"
+    };
+    INDEXING_TEST_ASSERT(devProfile.ignoreRules.size() == expectedDevRules.size());
+    for (const auto& rule : expectedDevRules) {
+        INDEXING_TEST_ASSERT(std::find(devProfile.ignoreRules.begin(), devProfile.ignoreRules.end(), rule) != devProfile.ignoreRules.end());
+    }
+    checkNoDuplicates(devProfile.ignoreRules, "Developer ignoreRules");
 
     // 4. God Mode Profile
     auto godProfile = fizz::getPresetProfile(fizz::PresetType::GodMode, fakeHome);
     INDEXING_TEST_ASSERT(godProfile.name == "God Mode");
     INDEXING_TEST_ASSERT(godProfile.searchRoots.size() == 1);
     INDEXING_TEST_ASSERT(godProfile.searchRoots[0] == "/");
+    checkNoDuplicates(godProfile.searchRoots, "GodMode searchRoots");
     INDEXING_TEST_ASSERT(godProfile.ignoreRules.empty());
 
     std::cout << "[PASS] test_preset_profile_contents passed.\n";
@@ -506,17 +541,21 @@ void test_preset_application_and_atomic_persistence() {
     bool ok = tab.confirmPresetApplication(config, testConfigPath, fakeHome);
     INDEXING_TEST_ASSERT(ok);
     INDEXING_TEST_ASSERT(!tab.isPresetConfirmationOpen());
-    INDEXING_TEST_ASSERT(config.searchRoots.size() == 6);
-    INDEXING_TEST_ASSERT(config.ignoreRules.size() == 9);
+    INDEXING_TEST_ASSERT(config.searchRoots.size() == 2);
+    INDEXING_TEST_ASSERT(config.searchRoots[0] == "/home/charlie");
+    INDEXING_TEST_ASSERT(config.searchRoots[1] == "/usr/share/applications");
+    INDEXING_TEST_ASSERT(config.ignoreRules.size() == 23);
 
     // Verify atomic persistence to file
     FizzConfig loaded = loadConfig(testConfigPath);
-    INDEXING_TEST_ASSERT(loaded.searchRoots.size() == 6);
+    INDEXING_TEST_ASSERT(loaded.searchRoots.size() == 2);
     INDEXING_TEST_ASSERT(loaded.searchRoots[0] == "/home/charlie");
-    INDEXING_TEST_ASSERT(loaded.searchRoots[3] == "/home/charlie/Projects");
-    INDEXING_TEST_ASSERT(loaded.ignoreRules.size() == 9);
-    INDEXING_TEST_ASSERT(loaded.ignoreRules[0] == "node_modules");
-    INDEXING_TEST_ASSERT(loaded.ignoreRules[8] == "obj");
+    INDEXING_TEST_ASSERT(loaded.searchRoots[1] == "/usr/share/applications");
+    INDEXING_TEST_ASSERT(loaded.ignoreRules.size() == 23);
+    INDEXING_TEST_ASSERT(std::find(loaded.ignoreRules.begin(), loaded.ignoreRules.end(), "node_modules") != loaded.ignoreRules.end());
+    INDEXING_TEST_ASSERT(std::find(loaded.ignoreRules.begin(), loaded.ignoreRules.end(), "go/pkg") != loaded.ignoreRules.end());
+    INDEXING_TEST_ASSERT(std::find(loaded.ignoreRules.begin(), loaded.ignoreRules.end(), ".ruff_cache") != loaded.ignoreRules.end());
+    INDEXING_TEST_ASSERT(std::find(loaded.ignoreRules.begin(), loaded.ignoreRules.end(), ".vscode") != loaded.ignoreRules.end());
 
     // 2. Apply God Mode preset
     tab.requestApplyPreset(fizz::PresetType::GodMode);
@@ -540,14 +579,19 @@ void test_preset_application_and_atomic_persistence() {
     ok = tab.confirmPresetApplication(config, testConfigPath, fakeHome);
     INDEXING_TEST_ASSERT(ok);
     INDEXING_TEST_ASSERT(!tab.isPresetConfirmationOpen());
-    INDEXING_TEST_ASSERT(config.searchRoots.size() == 7);
-    INDEXING_TEST_ASSERT(config.ignoreRules.empty());
+    INDEXING_TEST_ASSERT(config.searchRoots.size() == 8);
+    INDEXING_TEST_ASSERT(config.searchRoots[0] == "/home/charlie/Documents");
+    INDEXING_TEST_ASSERT(config.searchRoots[1] == "/home/charlie/Downloads");
+    INDEXING_TEST_ASSERT(config.ignoreRules.size() == 1);
+    INDEXING_TEST_ASSERT(config.ignoreRules[0] == ".cache");
 
     // Verify persistence for Minimalist
     loaded = loadConfig(testConfigPath);
-    INDEXING_TEST_ASSERT(loaded.searchRoots.size() == 7);
+    INDEXING_TEST_ASSERT(loaded.searchRoots.size() == 8);
     INDEXING_TEST_ASSERT(loaded.searchRoots[0] == "/home/charlie/Documents");
-    INDEXING_TEST_ASSERT(loaded.ignoreRules.empty());
+    INDEXING_TEST_ASSERT(loaded.searchRoots[1] == "/home/charlie/Downloads");
+    INDEXING_TEST_ASSERT(loaded.ignoreRules.size() == 1);
+    INDEXING_TEST_ASSERT(loaded.ignoreRules[0] == ".cache");
 
     fs::remove_all(testDir, ec);
     std::cout << "[PASS] test_preset_application_and_atomic_persistence passed.\n";
