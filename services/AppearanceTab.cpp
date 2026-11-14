@@ -54,6 +54,50 @@ float clampFontSize(float fontSize) {
     return std::clamp(fontSize, kMinFontSize, kMaxFontSize);
 }
 
+WindowPosition calculateCenteredWindowPos(
+    const MonitorWorkArea& workArea,
+    int windowWidth,
+    int windowHeight,
+    const WindowPosition& fallbackPos) {
+    if (workArea.width <= 0 || workArea.height <= 0) {
+        return fallbackPos;
+    }
+
+    int targetX = 0;
+    if (windowWidth <= workArea.width) {
+        targetX = workArea.x + (workArea.width - windowWidth) / 2;
+        targetX = std::clamp(targetX, workArea.x, workArea.x + workArea.width - windowWidth);
+    } else {
+        targetX = workArea.x;
+    }
+
+    int targetY = 0;
+    if (windowHeight <= workArea.height) {
+        targetY = workArea.y + (workArea.height - windowHeight) / 2;
+        targetY = std::clamp(targetY, workArea.y, workArea.y + workArea.height - windowHeight);
+    } else {
+        targetY = workArea.y;
+    }
+
+    return {targetX, targetY};
+}
+
+int findActiveMonitorIndex(
+    const std::vector<MonitorWorkArea>& monitors,
+    int centerX,
+    int centerY) {
+    for (size_t i = 0; i < monitors.size(); ++i) {
+        const auto& m = monitors[i];
+        if (m.width > 0 && m.height > 0) {
+            if (centerX >= m.x && centerX < m.x + m.width &&
+                centerY >= m.y && centerY < m.y + m.height) {
+                return static_cast<int>(i);
+            }
+        }
+    }
+    return -1;
+}
+
 void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
     s_globalWindowResizeCallback = std::move(cb);
 }
