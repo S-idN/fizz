@@ -347,6 +347,7 @@ bool renderViewHeader(std::string_view title, std::string_view backLabel) {
 
     // Advance cursor past the header container
     ImGui::SetCursorScreenPos(ImVec2(cursor.x, geom.separatorY + theme::Metrics::kItemSpacing.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
     return backClicked;
 }

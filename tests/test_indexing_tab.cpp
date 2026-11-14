@@ -288,11 +288,6 @@ void test_headless_indexing_tab_rendering() {
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 
-    ImGui::NewFrame();
-    ImGui::SetNextWindowPos({0, 0});
-    ImGui::SetNextWindowSize(io.DisplaySize);
-    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
-
     fizz::IndexingTab tab;
 
     // Frame 1: Normal tab rendering with preset buttons
