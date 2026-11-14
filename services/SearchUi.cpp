@@ -6,6 +6,73 @@
 
 namespace fizz::ui {
 
+static bool s_iconFontSuppressedForTesting = false;
+
+void setIconFontSuppressedForTesting(bool suppressed) {
+    s_iconFontSuppressedForTesting = suppressed;
+}
+
+bool isIconFontSuppressedForTesting() {
+    return s_iconFontSuppressedForTesting;
+}
+
+bool isIconFontAvailable() {
+    if (s_iconFontSuppressedForTesting) {
+        return false;
+    }
+    if (!ImGui::GetCurrentContext()) {
+        return false;
+    }
+    ImFont* font = ImGui::GetFont();
+    if (!font && ImGui::GetIO().Fonts && ImGui::GetIO().Fonts->Fonts.Size > 0) {
+        font = ImGui::GetIO().FontDefault ? ImGui::GetIO().FontDefault : ImGui::GetIO().Fonts->Fonts[0];
+    }
+    if (!font || !font->IsLoaded()) {
+        return false;
+    }
+    return font->IsGlyphInFont(0xf060);
+}
+
+const char* getGeneralTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_SLIDERS " General" : "General";
+}
+
+const char* getAppearanceTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_PALETTE " Appearance" : "Appearance";
+}
+
+const char* getIndexingTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_TREE " Indexing" : "Indexing";
+}
+
+const char* getCacheTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_HARD_DRIVE " Cache" : "Cache";
+}
+
+const char* getViewHeaderReturnLabel() {
+    return isIconFontAvailable() ? ICON_FA_ARROW_LEFT " Esc" : "Esc";
+}
+
+const char* getRebuildCacheButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ARROWS_ROTATE " Rebuild Cache##action" : "Rebuild Cache##action";
+}
+
+const char* getResetDefaultsButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ROTATE_LEFT " Reset to Factory Defaults##btn_reset_defaults" : "Reset to Factory Defaults##btn_reset_defaults";
+}
+
+const char* getCacheResetDefaultButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ROTATE_LEFT " Reset Default##cache" : "Reset Default##cache";
+}
+
+const char* getAddRootButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_PLUS " Add Root##btn_add_root" : "Add Root##btn_add_root";
+}
+
+const char* getBrowseRootButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_OPEN " Browse##btn_browse_root" : "Browse##btn_browse_root";
+}
+
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize) {
     float pillW = std::max(0.0f, width);
     float pillH = std::max(0.0f, height);
@@ -317,7 +384,9 @@ bool renderViewHeader(std::string_view title, std::string_view backLabel) {
     float fontSize = ImGui::GetFontSize();
     float headerH = Metrics::kHeaderHeight;
 
-    auto geom = calculateViewHeaderLayout(cursor, availW, title, headerH, fontSize, backLabel);
+    std::string_view effectiveLabel = backLabel.empty() ? getViewHeaderReturnLabel() : backLabel;
+
+    auto geom = calculateViewHeaderLayout(cursor, availW, title, headerH, fontSize, effectiveLabel);
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // Position cursor for back button
@@ -329,7 +398,7 @@ bool renderViewHeader(std::string_view title, std::string_view backLabel) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Metrics::kBackBtnRounding);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Metrics::kBackBtnPaddingX, Metrics::kBackBtnPaddingY));
 
-    std::string buttonId = std::string(backLabel) + "##back";
+    std::string buttonId = std::string(effectiveLabel) + "##back";
     bool backClicked = ImGui::Button(buttonId.c_str(), ImVec2(geom.backButtonWidth, geom.backButtonHeight));
 
     ImGui::PopStyleVar(2);

@@ -9,6 +9,9 @@
 #include <cmath>
 #include "services/IndexingTab.h"
 #include "services/Theme.h"
+#include "services/SearchUi.h"
+#include "services/AppearanceTab.h"
+#include "IconsFontAwesome7.h"
 #include "imgui_internal.h"
 
 #define INDEXING_TEST_ASSERT(cond) \
@@ -1215,7 +1218,67 @@ void test_indexing_tab_relaxed_layout_metrics() {
     std::cout << "[PASS] test_indexing_tab_relaxed_layout_metrics passed.\n";
 }
 
+void test_indexing_tab_action_buttons_and_degradation() {
+    std::cout << "[TEST] Running test_indexing_tab_action_buttons_and_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    INDEXING_TEST_ASSERT(rebuilt);
+    INDEXING_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::IndexingTab tab;
+
+    // 1. Icon-enabled mode
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getAddRootButtonLabel()) == ICON_FA_FOLDER_PLUS " Add Root##btn_add_root");
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getBrowseRootButtonLabel()) == ICON_FA_FOLDER_OPEN " Browse##btn_browse_root");
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getIndexingTabLabel()) == ICON_FA_FOLDER_TREE " Indexing");
+
+    ImGui::NewFrame();
+    ImGui::Begin("Indexing_Icon_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(config);
+    ImGuiContext& g = *GImGui;
+    std::string loggedIcon = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(loggedIcon.find(ICON_FA_FOLDER_PLUS) != std::string::npos);
+    INDEXING_TEST_ASSERT(loggedIcon.find(ICON_FA_FOLDER_OPEN) != std::string::npos);
+
+    // 2. Icon-suppressed mode (clean text degradation)
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getAddRootButtonLabel()) == "Add Root##btn_add_root");
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getBrowseRootButtonLabel()) == "Browse##btn_browse_root");
+    INDEXING_TEST_ASSERT(std::string(fizz::ui::getIndexingTabLabel()) == "Indexing");
+
+    ImGui::NewFrame();
+    ImGui::Begin("Indexing_Degraded_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(config);
+    std::string loggedDegraded = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(loggedDegraded.find("Add Root") != std::string::npos);
+    INDEXING_TEST_ASSERT(loggedDegraded.find("Browse") != std::string::npos);
+    INDEXING_TEST_ASSERT(loggedDegraded.find(ICON_FA_FOLDER_PLUS) == std::string::npos);
+    INDEXING_TEST_ASSERT(loggedDegraded.find(ICON_FA_FOLDER_OPEN) == std::string::npos);
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_indexing_tab_action_buttons_and_degradation passed.\n";
+}
+
 void run_indexing_tab_tests() {
+    test_indexing_tab_action_buttons_and_degradation();
     test_indexing_tab_relaxed_layout_metrics();
     test_normalize_search_root();
     test_normalize_ignore_rule();

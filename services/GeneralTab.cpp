@@ -1,5 +1,6 @@
 #include "GeneralTab.h"
 #include "Theme.h"
+#include "SearchUi.h"
 #include "imgui.h"
 #include <algorithm>
 
@@ -162,7 +163,7 @@ void GeneralTab::render(FizzConfig& config, std::chrono::steady_clock::time_poin
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.25f, 0.25f, 1.0f));
 
-    if (ImGui::Button("Reset to Factory Defaults")) {
+    if (ImGui::Button(fizz::ui::getResetDefaultsButtonLabel())) {
         requestReset();
     }
     ImGui::PopStyleColor(3);

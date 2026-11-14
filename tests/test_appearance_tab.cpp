@@ -816,10 +816,14 @@ void test_settings_tab_order_and_clean_footer() {
         // Verify General comes before Appearance inside SettingsTabs
         size_t settingsPos = content.find("\"SettingsTabs\"");
         APPEARANCE_TEST_ASSERT(settingsPos != std::string::npos);
-        size_t genPos = content.find("BeginTabItem(\"General\")", settingsPos);
-        size_t appPos = content.find("BeginTabItem(\"Appearance\")", settingsPos);
-        size_t idxPos = content.find("BeginTabItem(\"Indexing\")", settingsPos);
-        size_t cchPos = content.find("BeginTabItem(\"Cache\")", settingsPos);
+        size_t genPos = content.find("getGeneralTabLabel()", settingsPos);
+        if (genPos == std::string::npos) genPos = content.find("BeginTabItem(\"General\")", settingsPos);
+        size_t appPos = content.find("getAppearanceTabLabel()", settingsPos);
+        if (appPos == std::string::npos) appPos = content.find("BeginTabItem(\"Appearance\")", settingsPos);
+        size_t idxPos = content.find("getIndexingTabLabel()", settingsPos);
+        if (idxPos == std::string::npos) idxPos = content.find("BeginTabItem(\"Indexing\")", settingsPos);
+        size_t cchPos = content.find("getCacheTabLabel()", settingsPos);
+        if (cchPos == std::string::npos) cchPos = content.find("BeginTabItem(\"Cache\")", settingsPos);
 
         APPEARANCE_TEST_ASSERT(genPos != std::string::npos);
         APPEARANCE_TEST_ASSERT(appPos != std::string::npos);
