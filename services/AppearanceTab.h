@@ -21,6 +21,11 @@ constexpr float kMinFontSize = 10.0f;
 constexpr float kMaxFontSize = 32.0f;
 constexpr float kDefaultFontSize = 16.0f;
 
+// Curated accent swatch token metrics
+constexpr float kSwatchSize = 26.0f;
+constexpr float kSwatchRounding = 6.0f;
+constexpr float kSwatchSpacing = 8.0f;
+
 // Boundary clamping helpers
 int clampWindowWidth(int width);
 int clampWindowHeight(int height);

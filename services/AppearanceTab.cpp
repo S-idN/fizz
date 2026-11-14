@@ -368,47 +368,47 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     const auto& accents = getCuratedAccents();
     std::string activeNorm = normalizeAccentId(config.accent);
 
+    const ImVec2 swatchSize(kSwatchSize, kSwatchSize);
+
     for (size_t i = 0; i < accents.size(); ++i) {
         const auto& choice = accents[i];
         bool isSelected = (activeNorm == choice.id);
 
-        ImGui::PushID((int)i);
+        ImGui::PushID(static_cast<int>(i));
 
-        std::string radioId = "##radio_" + choice.id;
-        if (ImGui::RadioButton(radioId.c_str(), isSelected)) {
+        if (i > 0) {
+            ImGui::SameLine(0.0f, kSwatchSpacing);
+        }
+
+        std::string swatchBtnId = "##swatch_" + choice.id;
+        if (ImGui::InvisibleButton(swatchBtnId.c_str(), swatchSize)) {
             if (!isSelected) {
                 selectAccent(config, choice.id);
                 modified = true;
             }
         }
-        ImGui::SameLine();
 
-        ImVec2 chipSize(18.0f, 18.0f);
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        p0.y += 1.0f;
-        ImVec2 p1(p0.x + chipSize.x, p0.y + chipSize.y);
+        ImVec2 pMin = ImGui::GetItemRectMin();
+        ImVec2 pMax = ImGui::GetItemRectMax();
+
+        bool hovered = ImGui::IsItemHovered();
+        if (hovered) {
+            ImGui::SetTooltip("%s", choice.displayName.c_str());
+        }
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(p0, p1, ImGui::GetColorU32(choice.color), 4.0f);
+
+        // Render filled color swatch
+        dl->AddRectFilled(pMin, pMax, ImGui::GetColorU32(choice.color), kSwatchRounding);
+
+        // Render active contrast ring / border or hover highlight
         if (isSelected) {
-            dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), 4.0f, 0, 1.5f);
-        }
-
-        std::string chipBtnId = "##chip_" + choice.id;
-        if (ImGui::InvisibleButton(chipBtnId.c_str(), chipSize)) {
-            if (!isSelected) {
-                selectAccent(config, choice.id);
-                modified = true;
-            }
-        }
-        ImGui::SameLine();
-
-        std::string labelId = choice.displayName + "##label_" + choice.id;
-        if (ImGui::Selectable(labelId.c_str(), isSelected, 0, ImVec2(160.0f, 0.0f))) {
-            if (!isSelected) {
-                selectAccent(config, choice.id);
-                modified = true;
-            }
+            dl->AddRect(pMin, pMax, ImGui::GetColorU32(ImGuiCol_Text), kSwatchRounding, 0, 2.0f);
+        } else if (hovered) {
+            ImU32 hoverCol = (config.theme == "light")
+                ? IM_COL32(0, 0, 0, 80)
+                : IM_COL32(255, 255, 255, 100);
+            dl->AddRect(pMin, pMax, hoverCol, kSwatchRounding, 0, 1.5f);
         }
 
         ImGui::PopID();
