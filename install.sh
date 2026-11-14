@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BIN_DIR="${FIZZ_BIN_DIR:-$HOME/.local/bin}"
+BIN_DIR="${FIZZ_BIN_DIR:-${BIN_DIR:-$HOME/.local/bin}}"
 UNIT_DIR="${FIZZ_UNIT_DIR:-$HOME/.config/systemd/user}"
 AUTOSTART_DIR="${FIZZ_AUTOSTART_DIR:-$HOME/.config/autostart}"
 CONFIG_DIR="${FIZZ_CONFIG_DIR:-$HOME/.config/fizz}"
@@ -10,6 +10,19 @@ HYPR_CONF="${FIZZ_HYPR_CONF:-$HOME/.config/hypr/hyprland.conf}"
 SWAY_CONF="${FIZZ_SWAY_CONF:-$HOME/.config/sway/config}"
 I3_CONF="${FIZZ_I3_CONF:-$HOME/.config/i3/config}"
 HOTKEY_CMD="$BIN_DIR/fizz-search"
+
+get_data_dir() {
+    if [ -n "${FIZZ_DATA_DIR:-}" ]; then
+        echo "$FIZZ_DATA_DIR"
+    elif [ "${BIN_DIR:-}" = "/usr/bin" ]; then
+        echo "/usr/share/fizz/assets"
+    elif [ "${BIN_DIR:-}" = "/usr/local/bin" ]; then
+        echo "/usr/local/share/fizz/assets"
+    else
+        echo "${XDG_DATA_HOME:-$HOME/.local/share}/fizz/assets"
+    fi
+}
+DATA_DIR="${FIZZ_DATA_DIR:-$(get_data_dir)}"
 
 SENTINEL_BEGIN="# BEGIN FIZZ HOTKEY"
 SENTINEL_END="# END FIZZ HOTKEY"
@@ -216,6 +229,20 @@ uninstall_binaries() {
     echo "Removed binaries: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
 }
 
+uninstall_assets() {
+    local data_dir
+    data_dir="$(get_data_dir)"
+    if [ -d "$data_dir" ]; then
+        rm -rf "$data_dir"
+        echo "Removed assets: $data_dir"
+        local parent_dir
+        parent_dir="$(dirname "$data_dir")"
+        if [ -d "$parent_dir" ] && [ "$(basename "$parent_dir")" = "fizz" ]; then
+            rmdir "$parent_dir" 2>/dev/null || true
+        fi
+    fi
+}
+
 uninstall_fizz() {
     local purge="${1:-0}"
     local no_hotkey="${2:-0}"
@@ -225,17 +252,37 @@ uninstall_fizz() {
         unhotkey_all
     fi
     uninstall_binaries
+    uninstall_assets
 
     if [ "$purge" -eq 1 ]; then
         echo "Purging configuration and Binary Cache..."
         rm -rf "$CONFIG_DIR"
         rm -f "$BINARY_CACHE_PATH"
+        local data_dir
+        data_dir="$(get_data_dir)"
+        rm -rf "$data_dir"
+        local parent_dir
+        parent_dir="$(dirname "$data_dir")"
+        if [ -d "$parent_dir" ] && [ "$(basename "$parent_dir")" = "fizz" ]; then
+            rm -rf "$parent_dir"
+        fi
         echo "Purged $CONFIG_DIR and $BINARY_CACHE_PATH."
     else
         echo "Preserved configuration ($CONFIG_DIR) and Binary Cache ($BINARY_CACHE_PATH)."
         echo "Pass --purge to remove them."
     fi
     echo "Fizz uninstalled successfully."
+}
+
+install_assets() {
+    local src_dir="$1"
+    local data_dir
+    data_dir="$(get_data_dir)"
+    if [ -d "$src_dir/assets" ]; then
+        mkdir -p "$data_dir"
+        cp -a "$src_dir/assets/." "$data_dir/"
+        echo "Installed assets: $data_dir"
+    fi
 }
 
 build_and_install() {
@@ -247,6 +294,8 @@ build_and_install() {
     install -m755 "$src_dir/build/main_gui" "$BIN_DIR/fizz-search"
     install -m755 "$src_dir/build/fizzd"    "$BIN_DIR/fizzd"
     echo "Installed: $BIN_DIR/fizz-search, $BIN_DIR/fizzd"
+
+    install_assets "$src_dir"
 }
 
 run_install_deps() {

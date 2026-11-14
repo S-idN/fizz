@@ -367,12 +367,112 @@ void test_fontconfig_alphabetical_sorting() {
     std::cout << "[PASS] test_fontconfig_alphabetical_sorting passed.\n";
 }
 
+void test_xdg_asset_resolution() {
+    std::cout << "[TEST] Running test_xdg_asset_resolution...\n";
+
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_xdg_assets";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
+
+    // Save previous env vars
+    const char* prevFizzData = std::getenv("FIZZ_DATA_DIR");
+    std::string savedFizzData = prevFizzData ? prevFizzData : "";
+    const char* prevXdgData = std::getenv("XDG_DATA_HOME");
+    std::string savedXdgData = prevXdgData ? prevXdgData : "";
+    const char* prevHome = std::getenv("HOME");
+    std::string savedHome = prevHome ? prevHome : "";
+
+    auto restoreEnv = [&]() {
+        if (!savedFizzData.empty()) setenv("FIZZ_DATA_DIR", savedFizzData.c_str(), 1);
+        else unsetenv("FIZZ_DATA_DIR");
+        if (!savedXdgData.empty()) setenv("XDG_DATA_HOME", savedXdgData.c_str(), 1);
+        else unsetenv("XDG_DATA_HOME");
+        if (!savedHome.empty()) setenv("HOME", savedHome.c_str(), 1);
+        else unsetenv("HOME");
+    };
+
+    // 1. Test FIZZ_DATA_DIR override
+    fs::path customData = tempRoot / "custom_data";
+    fs::path customFont = customData / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(customFont);
+
+    setenv("FIZZ_DATA_DIR", customData.c_str(), 1);
+    unsetenv("XDG_DATA_HOME");
+
+    // Must resolve with leading "assets/"
+    std::string res1 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res1.empty());
+    FONT_TEST_ASSERT(res1 == customFont.lexically_normal().string());
+
+    // Must resolve without leading "assets/"
+    std::string res2 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res2.empty());
+    FONT_TEST_ASSERT(res2 == customFont.lexically_normal().string());
+
+    // Non-existent asset in FIZZ_DATA_DIR returns empty
+    std::string resMissing = resolveAssetFile("assets/icons/NonExistent.otf");
+    FONT_TEST_ASSERT(resMissing.empty());
+
+    // 2. Test XDG_DATA_HOME override
+    unsetenv("FIZZ_DATA_DIR");
+    fs::path xdgRoot = tempRoot / "xdg_home";
+    fs::path xdgFont = xdgRoot / "fizz" / "assets" / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(xdgFont);
+
+    setenv("XDG_DATA_HOME", xdgRoot.c_str(), 1);
+
+    std::string res3 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res3.empty());
+    FONT_TEST_ASSERT(res3 == xdgFont.lexically_normal().string());
+
+    std::string res4 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res4.empty());
+    FONT_TEST_ASSERT(res4 == xdgFont.lexically_normal().string());
+
+    // Also supports XDG_DATA_HOME/fizz layout
+    fs::path xdgRoot2 = tempRoot / "xdg_home2";
+    fs::path xdgFont2 = xdgRoot2 / "fizz" / "assets" / "icons" / "Font Awesome 7 Free-Solid-900.otf";
+    createDummyFile(xdgFont2);
+    setenv("XDG_DATA_HOME", xdgRoot2.c_str(), 1);
+
+    std::string resIcon = resolveAssetFile("assets/icons/Font Awesome 7 Free-Solid-900.otf");
+    FONT_TEST_ASSERT(!resIcon.empty());
+    FONT_TEST_ASSERT(resIcon == xdgFont2.lexically_normal().string());
+
+    // 3. Test ~/.local/share fallback via HOME
+    unsetenv("XDG_DATA_HOME");
+    fs::path homeRoot = tempRoot / "user_home";
+    fs::path localShareFont = homeRoot / ".local" / "share" / "fizz" / "assets" / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(localShareFont);
+    setenv("HOME", homeRoot.c_str(), 1);
+
+    std::string res5 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res5.empty());
+    FONT_TEST_ASSERT(res5 == localShareFont.lexically_normal().string());
+
+    std::string res6 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res6.empty());
+    FONT_TEST_ASSERT(res6 == localShareFont.lexically_normal().string());
+
+    // 4. Test precedence: FIZZ_DATA_DIR beats XDG_DATA_HOME and ~/.local/share
+    setenv("FIZZ_DATA_DIR", customData.c_str(), 1);
+    setenv("XDG_DATA_HOME", xdgRoot.c_str(), 1);
+    std::string resPrec = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(resPrec == customFont.lexically_normal().string());
+
+    restoreEnv();
+    fs::remove_all(tempRoot, ec);
+    std::cout << "[PASS] test_xdg_asset_resolution passed.\n";
+}
+
 void run_font_discovery_tests() {
     test_candidate_generation();
     test_cascade_priority();
     test_sandboxed_distro_filesystem_discovery();
     test_host_system_font_discovery();
     test_bundled_space_grotesk_default_resolution();
+    test_xdg_asset_resolution();
     test_fontconfig_enumeration_and_scalable_filtering();
     test_fontconfig_deduplication();
     test_fontconfig_alphabetical_sorting();
