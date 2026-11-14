@@ -27,6 +27,7 @@ struct Palette {
     static constexpr ImVec4 kTagGrey       = {0.600f, 0.650f, 0.670f, 1.00f};
     static constexpr ImVec4 kTagTeal       = {0.200f, 0.780f, 0.720f, 1.00f}; // Crisp teal for doc
     static constexpr ImVec4 kTagAction     = {0.780f, 0.350f, 0.920f, 1.00f}; // Distinct violet for builtin actions
+    static constexpr ImVec4 kTagYellow     = {0.950f, 0.800f, 0.200f, 1.00f}; // Warm yellow for folder
 };
 
 // Color definitions matching GNOME Adwaita Light palette

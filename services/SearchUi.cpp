@@ -3,6 +3,7 @@
 #include "AppLauncher.h"
 #include "BuiltinActions.h"
 #include <algorithm>
+#include <filesystem>
 
 namespace fizz::ui {
 
@@ -53,6 +54,48 @@ const char* getViewHeaderReturnLabel() {
     return isIconFontAvailable() ? ICON_FA_ARROW_LEFT " Esc" : "Esc";
 }
 
+const char* getSearchPromptIndicator() {
+    return isIconFontAvailable() ? ICON_FA_MAGNIFYING_GLASS : ">";
+}
+
+const char* getCategoryBadgeLabel(std::string_view category) {
+    bool hasIcon = isIconFontAvailable();
+    if (category == "app") {
+        return hasIcon ? ICON_FA_WINDOW_MAXIMIZE " app" : "app";
+    }
+    if (category == "untrusted-app" || category == "untrusted") {
+        return hasIcon ? ICON_FA_TRIANGLE_EXCLAMATION " untrusted-app" : "untrusted-app";
+    }
+    if (category == "exec") {
+        return hasIcon ? ICON_FA_TERMINAL " exec" : "exec";
+    }
+    if (category == "code") {
+        return hasIcon ? ICON_FA_CODE " code" : "code";
+    }
+    if (category == "doc") {
+        return hasIcon ? ICON_FA_FILE_LINES " doc" : "doc";
+    }
+    if (category == "folder") {
+        return hasIcon ? ICON_FA_FOLDER " folder" : "folder";
+    }
+    if (category == "action") {
+        return hasIcon ? ICON_FA_BOLT " action" : "action";
+    }
+    if (category == "media") {
+        return hasIcon ? ICON_FA_PHOTO_FILM " media" : "media";
+    }
+    if (category == "image") {
+        return hasIcon ? ICON_FA_IMAGE " image" : "image";
+    }
+    if (category == "archive") {
+        return hasIcon ? ICON_FA_BOX_ARCHIVE " archive" : "archive";
+    }
+    if (category == "text") {
+        return hasIcon ? ICON_FA_FILE_LINES " text" : "text";
+    }
+    return "";
+}
+
 const char* getRebuildCacheButtonLabel() {
     return isIconFontAvailable() ? ICON_FA_ARROWS_ROTATE " Rebuild Cache##action" : "Rebuild Cache##action";
 }
@@ -74,26 +117,13 @@ const char* getBrowseRootButtonLabel() {
 }
 
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize) {
-    float pillW = std::max(0.0f, width);
-    float pillH = std::max(0.0f, height);
-    ImVec2 pillMin = origin;
-    ImVec2 pillMax = {origin.x + pillW, origin.y + pillH};
-
-    float promptX = pillMin.x + Metrics::kSearchPillPaddingX;
-    float promptY = pillMin.y + (pillH - fontSize) * 0.5f;
-
-    float inputX = promptX + Metrics::kPromptGlyphWidth + Metrics::kPromptSpacing;
-    float inputY = pillMin.y;
-    float inputW = std::max(0.0f, pillMax.x - Metrics::kSearchPillPaddingX - inputX);
-
-    return SearchPillGeometry{
-        pillMin,
-        pillMax,
-        Metrics::kSearchPillRounding,
-        ImVec2(promptX, promptY),
-        ImVec2(inputX, inputY),
-        inputW
+    auto measureFn = [](std::string_view s) -> float {
+        if (ImGui::GetCurrentContext()) {
+            return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+        }
+        return Metrics::kPromptGlyphWidth;
     };
+    return calculateSearchPillGeometry(origin, width, height, measureFn, fontSize);
 }
 
 std::string formatHitCount(int count) {
@@ -162,7 +192,15 @@ BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax,
 
 CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
     if (fizz::isBuiltinActionPath(path)) {
-        return {fizz::kActionBadgeLabel, theme::Palette::kTagAction};
+        return {getCategoryBadgeLabel("action"), theme::Palette::kTagAction};
+    }
+
+    if (!path.empty() && path.back() == '/') {
+        return {getCategoryBadgeLabel("folder"), theme::Palette::kTagYellow};
+    }
+    std::error_code ec;
+    if (!path.empty() && std::filesystem::is_directory(path, ec)) {
+        return {getCategoryBadgeLabel("folder"), theme::Palette::kTagYellow};
     }
 
     std::string_view cat = classifyPath(path, state);
@@ -172,30 +210,30 @@ CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
 
     if (cat == "app") {
         if (!isDesktopEntryTrusted(path)) {
-            return {"untrusted-app", theme::Palette::kAmber};
+            return {getCategoryBadgeLabel("untrusted-app"), theme::Palette::kAmber};
         }
-        return {"app", theme::getActiveAccent()};
+        return {getCategoryBadgeLabel("app"), theme::getActiveAccent()};
     }
 
     struct CategoryMapping {
         std::string_view cat;
-        std::string_view label;
         ImVec4 color;
     };
 
     static constexpr CategoryMapping kTable[] = {
-        {"exec",    "exec",    theme::Palette::kTagOrange},
-        {"code",    "code",    theme::Palette::kTagPurple},
-        {"doc",     "doc",     theme::Palette::kTagTeal},
-        {"media",   "media",   theme::Palette::kTagGreen},
-        {"image",   "image",   theme::Palette::kTagPink},
-        {"archive", "archive", theme::Palette::kTagGrey},
-        {"text",    "text",    theme::Palette::kTagBlue},
+        {"exec",    theme::Palette::kTagOrange},
+        {"code",    theme::Palette::kTagPurple},
+        {"doc",     theme::Palette::kTagTeal},
+        {"media",   theme::Palette::kTagGreen},
+        {"image",   theme::Palette::kTagPink},
+        {"archive", theme::Palette::kTagGrey},
+        {"text",    theme::Palette::kTagBlue},
+        {"folder",  theme::Palette::kTagYellow},
     };
 
     for (const auto& item : kTable) {
         if (cat == item.cat) {
-            return {item.label, item.color};
+            return {getCategoryBadgeLabel(item.cat), item.color};
         }
     }
 
@@ -261,7 +299,8 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder, b
     dl->AddRect(geom.pillMin, geom.pillMax, ImGui::GetColorU32(ImGuiCol_Border), geom.rounding);
 
     // Draw prominent prompt indicator in active accent
-    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::getActiveAccent()), ">");
+    const char* prompt = getSearchPromptIndicator();
+    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::getActiveAccent()), prompt);
 
     // Position and render InputTextWithHint inside the pill container
     ImGui::SetCursorScreenPos(geom.inputPos);
