@@ -86,7 +86,7 @@ void test_appearance_curated_accent_palette() {
     std::cout << "[TEST] Running test_appearance_curated_accent_palette...\n";
 
     const auto& accents = fizz::ui::getCuratedAccents();
-    APPEARANCE_TEST_ASSERT(accents.size() == 5);
+    APPEARANCE_TEST_ASSERT(accents.size() == 10);
 
     // 1. Blue (Adwaita Blue)
     APPEARANCE_TEST_ASSERT(accents[0].id == "blue");
@@ -113,17 +113,52 @@ void test_appearance_curated_accent_palette() {
     APPEARANCE_TEST_ASSERT(accents[4].displayName == "Crimson");
     APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[4].color, fizz::theme::Accents::kCrimson));
 
+    // 6. Rose / Coral
+    APPEARANCE_TEST_ASSERT(accents[5].id == "rose");
+    APPEARANCE_TEST_ASSERT(accents[5].displayName == "Rose / Coral");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[5].color, fizz::theme::Accents::kRose));
+
+    // 7. Electric Indigo
+    APPEARANCE_TEST_ASSERT(accents[6].id == "indigo");
+    APPEARANCE_TEST_ASSERT(accents[6].displayName == "Electric Indigo");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[6].color, fizz::theme::Accents::kIndigo));
+
+    // 8. Nord Cyan
+    APPEARANCE_TEST_ASSERT(accents[7].id == "cyan");
+    APPEARANCE_TEST_ASSERT(accents[7].displayName == "Nord Cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[7].color, fizz::theme::Accents::kCyan));
+
+    // 9. Sunset Orange
+    APPEARANCE_TEST_ASSERT(accents[8].id == "sunset");
+    APPEARANCE_TEST_ASSERT(accents[8].displayName == "Sunset Orange");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[8].color, fizz::theme::Accents::kSunset));
+
+    // 10. Neon Lime
+    APPEARANCE_TEST_ASSERT(accents[9].id == "lime");
+    APPEARANCE_TEST_ASSERT(accents[9].displayName == "Neon Lime");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[9].color, fizz::theme::Accents::kLime));
+
     // Verify individual color calculations & lookups via getAccentColor
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("blue"), fizz::theme::Accents::kBlue));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("emerald"), fizz::theme::Accents::kEmerald));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("purple"), fizz::theme::Accents::kPurple));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("amber"), fizz::theme::Accents::kAmber));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("crimson"), fizz::theme::Accents::kCrimson));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("rose"), fizz::theme::Accents::kRose));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("indigo"), fizz::theme::Accents::kIndigo));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("cyan"), fizz::theme::Accents::kCyan));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("lime"), fizz::theme::Accents::kLime));
 
     // Aliases
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("green"), fizz::theme::Accents::kEmerald));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("red"), fizz::theme::Accents::kCrimson));
-    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("orange"), fizz::theme::Accents::kAmber));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("coral"), fizz::theme::Accents::kRose));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("electric indigo"), fizz::theme::Accents::kIndigo));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("nord cyan"), fizz::theme::Accents::kCyan));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("orange"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset orange"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("neon lime"), fizz::theme::Accents::kLime));
 
     // Fallback for unrecognized accent defaults to Adwaita Blue
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("invalid_accent"), fizz::theme::Accents::kBlue));
@@ -174,6 +209,40 @@ void test_appearance_live_imgui_style_application() {
     APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_WindowBg], fizz::theme::LightPalette::kBg));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCrimson));
 
+    // Live update to Rose (and alias coral)
+    fizz::ui::selectAccent(config, "rose", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "rose");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kRose, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kRose));
+    fizz::ui::selectAccent(config, "coral", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "rose");
+
+    // Live update to Indigo (and alias electric indigo)
+    fizz::ui::selectAccent(config, "electric indigo", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "indigo");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kIndigo, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kIndigo));
+
+    // Live update to Cyan (and alias nord cyan)
+    fizz::ui::selectAccent(config, "nord cyan", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kCyan, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCyan));
+
+    // Live update to Sunset (and aliases orange, sunset orange)
+    fizz::ui::selectAccent(config, "orange", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "sunset");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kSunset, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kSunset));
+    fizz::ui::selectAccent(config, "sunset orange", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "sunset");
+
+    // Live update to Lime (and alias neon lime)
+    fizz::ui::selectAccent(config, "neon lime", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "lime");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kLime, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kLime));
+
     std::cout << "[PASS] test_appearance_live_imgui_style_application passed.\n";
 }
 
@@ -223,6 +292,19 @@ void test_appearance_atomic_config_persistence() {
     APPEARANCE_TEST_ASSERT(loaded.theme == "dark");
     APPEARANCE_TEST_ASSERT(loaded.accent == "crimson");
 
+    // 4. Changing to new accents (Sunset, Lime, Rose) persists atomically
+    fizz::ui::selectAccent(config, "sunset", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "sunset");
+
+    fizz::ui::selectAccent(config, "lime", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "lime");
+
+    fizz::ui::selectAccent(config, "rose", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "rose");
+
     // Cleanup
     setConfigPath("");
     fs::remove_all(tempDir, ec);
@@ -252,9 +334,15 @@ void test_appearance_headless_ui_rendering() {
 
     // Render TabBar with Appearance tab
     bool tabModified = false;
+    std::string capturedUiTextFrame1;
     if (ImGui::BeginTabBar("SettingsTabBar", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Appearance")) {
+            ImGui::LogToClipboard();
             tabModified = fizz::ui::renderAppearanceTab(config);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame1 = clip;
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("General")) {
@@ -271,6 +359,13 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(drawData != nullptr);
     APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
 
+    // Verify footer summary block is completely absent from rendered Appearance tab
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Changes apply live without restart") == std::string::npos);
+
     // Frame 2: Render with explicit AppearanceCallbacks wired
     int resizeCount = 0;
     int fontRebuildCount = 0;
@@ -278,13 +373,19 @@ void test_appearance_headless_ui_rendering() {
     callbacks.onWindowResize = [&](int, int) { resizeCount++; };
     callbacks.onFontRebuild = [&](const std::string&, float) { fontRebuildCount++; };
 
+    std::string capturedUiTextFrame2;
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("settings_test_window_2", nullptr, ImGuiWindowFlags_NoDecoration);
     if (ImGui::BeginTabBar("SettingsTabBar2", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Appearance")) {
+            ImGui::LogToClipboard();
             fizz::ui::renderAppearanceTab(config, callbacks);
+            ImGui::LogFinish();
+            if (const char* clip = ImGui::GetClipboardText()) {
+                capturedUiTextFrame2 = clip;
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -295,6 +396,12 @@ void test_appearance_headless_ui_rendering() {
     ImDrawData* drawData2 = ImGui::GetDrawData();
     APPEARANCE_TEST_ASSERT(drawData2 != nullptr);
     APPEARANCE_TEST_ASSERT(drawData2->CmdListsCount > 0);
+
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Theme:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Current Accent:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Size:") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
 
     ImGui::DestroyContext(ctx);
 
@@ -612,6 +719,90 @@ void test_appearance_custom_font_and_icon_merging() {
     std::cout << "[PASS] test_appearance_custom_font_and_icon_merging passed.\n";
 }
 
+void test_appearance_window_centering_and_workarea() {
+    std::cout << "[TEST] Running test_appearance_window_centering_and_workarea...\n";
+
+    // 1. Exact coordinate math on primary display
+    fizz::ui::MonitorWorkArea primaryWorkArea{0, 0, 1920, 1080};
+    fizz::ui::WindowPosition pos1 = fizz::ui::calculateCenteredWindowPos(primaryWorkArea, 750, 480);
+    // (0 + (1920 - 750) / 2, 0 + (1080 - 480) / 2) = (585, 300)
+    APPEARANCE_TEST_ASSERT(pos1.x == 585);
+    APPEARANCE_TEST_ASSERT(pos1.y == 300);
+
+    // 2. Exact coordinate math on secondary monitor with panel / dock offset
+    fizz::ui::MonitorWorkArea secondaryWorkArea{1920, 32, 2560, 1408};
+    fizz::ui::WindowPosition pos2 = fizz::ui::calculateCenteredWindowPos(secondaryWorkArea, 1000, 650);
+    // (1920 + (2560 - 1000) / 2, 32 + (1408 - 650) / 2) = (1920 + 780, 32 + 379) = (2700, 411)
+    APPEARANCE_TEST_ASSERT(pos2.x == 2700);
+    APPEARANCE_TEST_ASSERT(pos2.y == 411);
+
+    // 3. Coordinate math with odd dimensions (integer floor division)
+    fizz::ui::MonitorWorkArea oddWorkArea{10, 15, 1921, 1081};
+    fizz::ui::WindowPosition pos3 = fizz::ui::calculateCenteredWindowPos(oddWorkArea, 750, 480);
+    // (10 + (1921 - 750) / 2, 15 + (1081 - 480) / 2) = (10 + 585, 15 + 300) = (595, 315)
+    APPEARANCE_TEST_ASSERT(pos3.x == 595);
+    APPEARANCE_TEST_ASSERT(pos3.y == 315);
+
+    // 4. Clamping within monitor bounds: window exact match
+    fizz::ui::MonitorWorkArea matchWorkArea{50, 50, 800, 600};
+    fizz::ui::WindowPosition posMatch = fizz::ui::calculateCenteredWindowPos(matchWorkArea, 800, 600);
+    APPEARANCE_TEST_ASSERT(posMatch.x == 50);
+    APPEARANCE_TEST_ASSERT(posMatch.y == 50);
+
+    // 5. Clamping within monitor bounds: window larger than work area width
+    fizz::ui::MonitorWorkArea smallWWorkArea{0, 0, 600, 600};
+    fizz::ui::WindowPosition posLargeW = fizz::ui::calculateCenteredWindowPos(smallWWorkArea, 750, 480);
+    // x clamps to work_x (0), y is centered (60)
+    APPEARANCE_TEST_ASSERT(posLargeW.x == 0);
+    APPEARANCE_TEST_ASSERT(posLargeW.y == 60);
+
+    // 6. Clamping within monitor bounds: window larger than work area height
+    fizz::ui::MonitorWorkArea smallHWorkArea{100, 50, 1200, 400};
+    fizz::ui::WindowPosition posLargeH = fizz::ui::calculateCenteredWindowPos(smallHWorkArea, 750, 480);
+    // x is centered (100 + (1200 - 750) / 2 = 325), y clamps to work_y (50)
+    APPEARANCE_TEST_ASSERT(posLargeH.x == 325);
+    APPEARANCE_TEST_ASSERT(posLargeH.y == 50);
+
+    // 7. Clamping within monitor bounds: window larger than work area in both dimensions
+    fizz::ui::MonitorWorkArea tinyWorkArea{200, 150, 500, 300};
+    fizz::ui::WindowPosition posTiny = fizz::ui::calculateCenteredWindowPos(tinyWorkArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posTiny.x == 200);
+    APPEARANCE_TEST_ASSERT(posTiny.y == 150);
+
+    // 8. Graceful fallback when monitor work area is unavailable (zero / negative dimensions)
+    fizz::ui::MonitorWorkArea zeroArea{0, 0, 0, 0};
+    fizz::ui::WindowPosition posZero = fizz::ui::calculateCenteredWindowPos(zeroArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posZero.x == 0);
+    APPEARANCE_TEST_ASSERT(posZero.y == 0);
+
+    fizz::ui::MonitorWorkArea negArea{50, 50, -100, -50};
+    fizz::ui::WindowPosition posNeg = fizz::ui::calculateCenteredWindowPos(negArea, 750, 480);
+    APPEARANCE_TEST_ASSERT(posNeg.x == 0);
+    APPEARANCE_TEST_ASSERT(posNeg.y == 0);
+
+    // Custom fallback position
+    fizz::ui::WindowPosition customFallback{123, 456};
+    fizz::ui::WindowPosition posCustom = fizz::ui::calculateCenteredWindowPos(zeroArea, 750, 480, customFallback);
+    APPEARANCE_TEST_ASSERT(posCustom.x == 123);
+    APPEARANCE_TEST_ASSERT(posCustom.y == 456);
+
+    // 9. Multi-monitor active monitor resolution
+    std::vector<fizz::ui::MonitorWorkArea> monitors = {
+        {0, 0, 1920, 1080},
+        {1920, 0, 2560, 1440}
+    };
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 960, 540) == 0);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 2500, 720) == 1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 1920, 0) == 1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, -100, -100) == -1);
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(monitors, 5000, 5000) == -1);
+
+    std::vector<fizz::ui::MonitorWorkArea> emptyMonitors;
+    APPEARANCE_TEST_ASSERT(fizz::ui::findActiveMonitorIndex(emptyMonitors, 960, 540) == -1);
+
+    std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -624,4 +815,5 @@ void run_appearance_tab_tests() {
     test_appearance_system_font_discovery();
     test_appearance_geometry_and_font_atomic_persistence();
     test_appearance_custom_font_and_icon_merging();
+    test_appearance_window_centering_and_workarea();
 }
