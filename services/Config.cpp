@@ -176,7 +176,20 @@ void setConfigPath(const std::string& path) {
 
 FizzConfig FizzConfig::defaults() {
     FizzConfig cfg;
-    cfg.searchRoots = getDefaultSearchRoots(true);
+    std::string home = getHomeDir();
+    cfg.searchRoots = {
+        home.empty() ? "~" : home,
+        "/usr/share/applications"
+    };
+    cfg.ignoreRules = {
+        ".cache",
+        ".git",
+        ".cargo",
+        ".rustup",
+        ".npm",
+        ".mozilla",
+        "Trash"
+    };
     return cfg;
 }
 
@@ -350,7 +363,7 @@ FizzConfig loadConfig(const std::string& configPath) {
     }
 
     if (!hasSearchRoots || config.searchRoots.empty()) {
-        config.searchRoots = getDefaultSearchRoots(true);
+        config.searchRoots = FizzConfig::defaults().searchRoots;
     }
 
     return config;

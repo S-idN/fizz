@@ -41,9 +41,13 @@ void test_config_parser_defaults_and_missing_file() {
 
     // 3. Loading missing config falls back cleanly to defaults without error
     FizzConfig config = loadConfig(overridePath);
-    auto defaultRoots = getDefaultSearchRoots(true);
-    CONFIG_TEST_ASSERT(config.searchRoots == defaultRoots);
-    CONFIG_TEST_ASSERT(config.ignoreRules.empty());
+    std::string homeDir = expectedHome.empty() ? (getHomeDir().empty() ? "~" : getHomeDir()) : expectedHome;
+    std::vector<std::string> expectedDefaultRoots = { homeDir, "/usr/share/applications" };
+    std::vector<std::string> expectedDefaultIgnore = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+    CONFIG_TEST_ASSERT(config.searchRoots == expectedDefaultRoots);
+    CONFIG_TEST_ASSERT(config.ignoreRules == expectedDefaultIgnore);
     CONFIG_TEST_ASSERT(config.autoCloseOnUnfocus == true);
     CONFIG_TEST_ASSERT(config.config_version == 1);
     CONFIG_TEST_ASSERT(config.theme == "dark");
@@ -120,9 +124,13 @@ void test_config_parser_corrupt_and_unreadable() {
     }
 
     FizzConfig config = loadConfig(confFile.string());
-    auto defaultRoots = getDefaultSearchRoots(true);
-    CONFIG_TEST_ASSERT(config.searchRoots == defaultRoots);
-    CONFIG_TEST_ASSERT(config.ignoreRules.empty());
+    std::string expectedHome = getHomeDir().empty() ? "~" : getHomeDir();
+    std::vector<std::string> expectedDefaultRoots = { expectedHome, "/usr/share/applications" };
+    std::vector<std::string> expectedDefaultIgnore = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+    CONFIG_TEST_ASSERT(config.searchRoots == expectedDefaultRoots);
+    CONFIG_TEST_ASSERT(config.ignoreRules == expectedDefaultIgnore);
 
     // 1b. File with an unrecognized option does NOT trigger fallback (permissive parsing)
     fs::path permissiveOptFile = tempDir / "permissive_opt.conf";
@@ -146,8 +154,8 @@ void test_config_parser_corrupt_and_unreadable() {
     }
 
     FizzConfig binConfig = loadConfig(binConf.string());
-    CONFIG_TEST_ASSERT(binConfig.searchRoots == defaultRoots);
-    CONFIG_TEST_ASSERT(binConfig.ignoreRules.empty());
+    CONFIG_TEST_ASSERT(binConfig.searchRoots == expectedDefaultRoots);
+    CONFIG_TEST_ASSERT(binConfig.ignoreRules == expectedDefaultIgnore);
 
     fs::remove_all(tempDir, ec);
     std::cout << "[PASS] test_config_parser_corrupt_and_unreadable passed.\n";
@@ -432,6 +440,14 @@ void test_config_schema_version_and_defaults() {
     CONFIG_TEST_ASSERT(def.binary_cache_path.empty());
     CONFIG_TEST_ASSERT(def.view_state_grace_seconds == 5);
     CONFIG_TEST_ASSERT(def.unrecognizedKeys.empty());
+
+    std::string expectedHome = getHomeDir().empty() ? "~" : getHomeDir();
+    std::vector<std::string> expectedDefaultRoots = { expectedHome, "/usr/share/applications" };
+    std::vector<std::string> expectedDefaultIgnore = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+    CONFIG_TEST_ASSERT(def.searchRoots == expectedDefaultRoots);
+    CONFIG_TEST_ASSERT(def.ignoreRules == expectedDefaultIgnore);
 
     fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_version";
     std::error_code ec;
@@ -999,7 +1015,41 @@ void test_config_serializer_migration_pre_v1_backup() {
     std::cout << "[PASS] test_config_serializer_migration_pre_v1_backup passed.\n";
 }
 
+void test_config_standard_desktop_defaults() {
+    std::cout << "[TEST] Running test_config_standard_desktop_defaults...\n";
+
+    FizzConfig def = FizzConfig::defaults();
+
+    std::string home = getHomeDir().empty() ? "~" : getHomeDir();
+    std::vector<std::string> expectedRoots = { home, "/usr/share/applications" };
+    std::vector<std::string> expectedIgnoreRules = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+
+    CONFIG_TEST_ASSERT(def.searchRoots == expectedRoots);
+    CONFIG_TEST_ASSERT(def.ignoreRules == expectedIgnoreRules);
+
+    // Verify serialization and reload round-trip retains exact Standard Desktop defaults
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_config_std_desktop";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confPath = tempDir / "fizz.conf";
+    bool saved = saveConfig(def, confPath.string());
+    CONFIG_TEST_ASSERT(saved);
+
+    FizzConfig loaded = loadConfig(confPath.string());
+    CONFIG_TEST_ASSERT(loaded.searchRoots == expectedRoots);
+    CONFIG_TEST_ASSERT(loaded.ignoreRules == expectedIgnoreRules);
+
+    fs::remove_all(tempDir, ec);
+    std::cout << "[PASS] test_config_standard_desktop_defaults passed.\n";
+}
+
 void run_config_tests() {
+    test_config_standard_desktop_defaults();
     test_config_parser_defaults_and_missing_file();
     test_config_parser_custom_values();
     test_config_parser_corrupt_and_unreadable();

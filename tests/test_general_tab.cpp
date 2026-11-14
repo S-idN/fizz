@@ -311,8 +311,21 @@ void test_general_tab_factory_defaults_restoration() {
     GENERAL_TEST_ASSERT(cfg.searchRoots == defaults.searchRoots);
     GENERAL_TEST_ASSERT(cfg.ignoreRules == defaults.ignoreRules);
 
+    // Explicit Standard Desktop configuration verification
+    std::string expectedHome = getHomeDir().empty() ? "~" : getHomeDir();
+    GENERAL_TEST_ASSERT(cfg.searchRoots.size() == 2);
+    GENERAL_TEST_ASSERT(cfg.searchRoots[0] == expectedHome);
+    GENERAL_TEST_ASSERT(cfg.searchRoots[1] == "/usr/share/applications");
+
+    std::vector<std::string> expectedIgnoreRules = {
+        ".cache", ".git", ".cargo", ".rustup", ".npm", ".mozilla", "Trash"
+    };
+    GENERAL_TEST_ASSERT(cfg.ignoreRules == expectedIgnoreRules);
+
     GENERAL_TEST_ASSERT(resetCfgCallback.autoCloseOnUnfocus == defaults.autoCloseOnUnfocus);
     GENERAL_TEST_ASSERT(resetCfgCallback.view_state_grace_seconds == defaults.view_state_grace_seconds);
+    GENERAL_TEST_ASSERT(resetCfgCallback.searchRoots == defaults.searchRoots);
+    GENERAL_TEST_ASSERT(resetCfgCallback.ignoreRules == defaults.ignoreRules);
 
     // Verify on-disk file was saved atomically with clean defaults
     FizzConfig loaded = loadConfig(confPath);
@@ -323,6 +336,7 @@ void test_general_tab_factory_defaults_restoration() {
     GENERAL_TEST_ASSERT(loaded.window_width == defaults.window_width);
     GENERAL_TEST_ASSERT(loaded.window_height == defaults.window_height);
     GENERAL_TEST_ASSERT(loaded.searchRoots == defaults.searchRoots);
+    GENERAL_TEST_ASSERT(loaded.ignoreRules == defaults.ignoreRules);
 
     std::error_code ec;
     fs::remove_all(testDir, ec);
