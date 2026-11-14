@@ -46,8 +46,13 @@ struct Accents {
     static constexpr ImVec4 kBlue    = {0.208f, 0.518f, 0.894f, 1.00f}; // Adwaita Blue (#3584e4)
     static constexpr ImVec4 kEmerald = {0.180f, 0.761f, 0.494f, 1.00f}; // Emerald Green (#2ec27e)
     static constexpr ImVec4 kPurple  = {0.569f, 0.255f, 0.675f, 1.00f}; // Purple (#9141ac)
-    static constexpr ImVec4 kAmber   = {0.950f, 0.700f, 0.100f, 1.00f}; // Amber (#f2b31a)
+    static constexpr ImVec4 kAmber   = {0.949f, 0.702f, 0.102f, 1.00f}; // Amber (#f2b31a)
     static constexpr ImVec4 kCrimson = {0.878f, 0.106f, 0.141f, 1.00f}; // Crimson (#e01b24)
+    static constexpr ImVec4 kRose    = {0.957f, 0.247f, 0.369f, 1.00f}; // Rose / Coral (#f43f5e)
+    static constexpr ImVec4 kIndigo  = {0.388f, 0.400f, 0.945f, 1.00f}; // Electric Indigo (#6366f1)
+    static constexpr ImVec4 kCyan    = {0.024f, 0.714f, 0.831f, 1.00f}; // Nord Cyan (#06b6d4)
+    static constexpr ImVec4 kSunset  = {0.976f, 0.451f, 0.086f, 1.00f}; // Sunset Orange (#f97316)
+    static constexpr ImVec4 kLime    = {0.518f, 0.800f, 0.086f, 1.00f}; // Neon Lime (#84cc16)
 };
 
 // Layout and soft rounding metrics
@@ -89,8 +94,12 @@ ImVec4 withAlpha(ImVec4 color, float alpha);
 // Calculates row indicator strip bounds
 IndicatorGeometry calculateIndicatorGeometry(const ImVec2& itemMin, const ImVec2& itemMax);
 
-// Returns the color associated with an accent color ID ("blue", "emerald", "purple", "amber", "crimson").
-// Handles aliases (e.g. "green" -> emerald, "red" -> crimson, "orange" -> amber).
+// Normalizes an accent color name or alias to canonical ID ("blue", "emerald", "purple", "amber", "crimson", "rose", "indigo", "cyan", "sunset", "lime").
+// Falls back to "blue" if unrecognized.
+std::string normalizeAccent(std::string_view accentName);
+
+// Returns the color associated with an accent color ID ("blue", "emerald", "purple", "amber", "crimson", "rose", "indigo", "cyan", "sunset", "lime").
+// Handles aliases (e.g. "green" -> emerald, "red" -> crimson, "orange" -> sunset, "coral" -> rose).
 // Falls back to Adwaita Blue if unrecognized.
 ImVec4 getAccentColor(std::string_view accentName);
 
