@@ -35,16 +35,16 @@ set(SERVICES_SOURCES
 )
 
 set(IMGUI_CORE_SOURCES
-    imgui/imgui.cpp
-    imgui/imgui_draw.cpp
-    imgui/imgui_tables.cpp
-    imgui/imgui_widgets.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
 )
 
 set(IMGUI_SOURCES
     ${IMGUI_CORE_SOURCES}
-    imgui/imgui_impl_glfw.cpp
-    imgui/imgui_impl_opengl3.cpp
+    vendor/imgui/imgui_impl_glfw.cpp
+    vendor/imgui/imgui_impl_opengl3.cpp
 )
 
 add_executable(main_gui main_gui.cpp ${SERVICES_SOURCES} ${IMGUI_SOURCES})
@@ -52,7 +52,8 @@ add_executable(main_gui main_gui.cpp ${SERVICES_SOURCES} ${IMGUI_SOURCES})
 target_include_directories(main_gui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
-    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/iconfontheaders
 )
 
 target_link_libraries(main_gui PRIVATE
@@ -125,7 +126,8 @@ add_executable(fizz_tests
 target_include_directories(fizz_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
-    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/iconfontheaders
 )
 
 target_link_libraries(fizz_tests PRIVATE Threads::Threads)

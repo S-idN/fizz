@@ -7,7 +7,7 @@
 #include <fstream>
 #include "services/GeneralTab.h"
 #include "services/Config.h"
-#include "imgui/imgui.h"
+#include "imgui.h"
 
 namespace fs = std::filesystem;
 

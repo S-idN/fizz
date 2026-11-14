@@ -12,6 +12,8 @@
 #include "services/Theme.h"
 #include "services/Config.h"
 #include "imgui.h"
+#include "IconsFontAwesome7.h"
+#include "IconsFontAwesome7Brands.h"
 
 namespace fs = std::filesystem;
 
@@ -588,6 +590,37 @@ void test_appearance_geometry_and_font_atomic_persistence() {
     std::cout << "[PASS] test_appearance_geometry_and_font_atomic_persistence passed.\n";
 }
 
+void test_appearance_custom_font_and_icon_merging() {
+    std::cout << "[TEST] Running test_appearance_custom_font_and_icon_merging...\n";
+
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+
+    bool success = fizz::ui::rebuildFontAtlas("", 16.0f);
+    APPEARANCE_TEST_ASSERT(success);
+    APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+
+    ImFont* font = io.Fonts->Fonts[0];
+    APPEARANCE_TEST_ASSERT(font != nullptr);
+
+    ImFontBaked* baked = font->GetFontBaked(16.0f);
+    APPEARANCE_TEST_ASSERT(baked != nullptr);
+
+    // Verify ASCII glyph from base text font
+    APPEARANCE_TEST_ASSERT(baked->FindGlyphNoFallback('A') != nullptr);
+
+    // Verify Font Awesome 7 Solid icon glyph (U+f002 magnifying glass)
+    const ImFontGlyph* solidGlyph = baked->FindGlyphNoFallback(0xf002);
+    APPEARANCE_TEST_ASSERT(solidGlyph != nullptr);
+
+    // Verify Font Awesome 7 Brands icon glyph (U+f09b github)
+    const ImFontGlyph* brandGlyph = baked->FindGlyphNoFallback(0xf09b);
+    APPEARANCE_TEST_ASSERT(brandGlyph != nullptr);
+
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_appearance_custom_font_and_icon_merging passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -599,4 +632,5 @@ void run_appearance_tab_tests() {
     test_appearance_dynamic_font_atlas_rebuild_and_safety();
     test_appearance_system_font_discovery();
     test_appearance_geometry_and_font_atomic_persistence();
+    test_appearance_custom_font_and_icon_merging();
 }

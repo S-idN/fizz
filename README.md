@@ -10,7 +10,7 @@
 
 ## Prerequisites
 Fizz needs a C++17 compiler, CMake, and GLFW + OpenGL development headers.
-(Dear ImGui is bundled in `imgui/`, so there's nothing to install for it.)
+(Dear ImGui is bundled in `vendor/imgui/`, so there's nothing to install for it.)
 
 | Distro | Command |
 | --- | --- |

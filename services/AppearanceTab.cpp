@@ -2,13 +2,42 @@
 #include "FontDiscovery.h"
 #include "SearchUi.h"
 #include "imgui_internal.h"
+#include "IconsFontAwesome7.h"
+#include "IconsFontAwesome7Brands.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <climits>
 #include <unistd.h>
 
 namespace fizz::ui {
+
+static std::string resolveAssetFile(const std::string& relativePath) {
+    if (access(relativePath.c_str(), R_OK) == 0) {
+        return relativePath;
+    }
+    std::string parentRelative = "../" + relativePath;
+    if (access(parentRelative.c_str(), R_OK) == 0) {
+        return parentRelative;
+    }
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len > 0) {
+        exePath[len] = '\0';
+        std::filesystem::path dir = std::filesystem::path(exePath).parent_path();
+        std::filesystem::path candidate = dir / relativePath;
+        if (access(candidate.c_str(), R_OK) == 0) {
+            return candidate.string();
+        }
+        candidate = dir.parent_path() / relativePath;
+        if (access(candidate.c_str(), R_OK) == 0) {
+            return candidate.string();
+        }
+    }
+    return "";
+}
 
 static std::function<void(int, int)> s_globalWindowResizeCallback = nullptr;
 static std::function<void(const std::string&, float)> s_globalFontRebuildCallback = nullptr;
@@ -77,7 +106,18 @@ bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
 
     atlas->Clear();
 
-    std::string resolved = fontPath.empty() ? resolveSystemFont() : fontPath;
+    std::string resolved;
+    if (!fontPath.empty()) {
+        resolved = fontPath;
+    } else {
+        std::string customDefault = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+        if (!customDefault.empty()) {
+            resolved = customDefault;
+        } else {
+            resolved = resolveSystemFont();
+        }
+    }
+
     ImFont* font = nullptr;
 
     if (!resolved.empty() && access(resolved.c_str(), R_OK) == 0) {
@@ -88,6 +128,32 @@ bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
 
     if (!font) {
         font = atlas->AddFontDefault();
+    }
+
+    // Merge Font Awesome 7 Solid and Brands icon fonts into base font
+    ImFontConfig iconConfig;
+    iconConfig.MergeMode = true;
+    iconConfig.PixelSnapH = true;
+    iconConfig.GlyphMinAdvanceX = clampedSize;
+
+    static const ImWchar icons_fa_ranges[] = {
+        ICON_MIN_FA,
+        ICON_MAX_FA,
+        0
+    };
+    std::string solidIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Free-Solid-900.otf");
+    if (!solidIconPath.empty() && access(solidIconPath.c_str(), R_OK) == 0) {
+        atlas->AddFontFromFileTTF(solidIconPath.c_str(), clampedSize, &iconConfig, icons_fa_ranges);
+    }
+
+    static const ImWchar icons_fab_ranges[] = {
+        ICON_MIN_FAB,
+        ICON_MAX_FAB,
+        0
+    };
+    std::string brandIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Brands-Regular-400.otf");
+    if (!brandIconPath.empty() && access(brandIconPath.c_str(), R_OK) == 0) {
+        atlas->AddFontFromFileTTF(brandIconPath.c_str(), clampedSize, &iconConfig, icons_fab_ranges);
     }
 
     atlas->Build();
