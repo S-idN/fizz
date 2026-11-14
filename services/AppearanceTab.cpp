@@ -493,33 +493,8 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
         ImGui::EndCombo();
     }
 
-    static char s_fontPathBuf[512] = "";
-    if (!ImGui::IsItemActive()) {
-        std::strncpy(s_fontPathBuf, config.font_path.c_str(), sizeof(s_fontPathBuf) - 1);
-        s_fontPathBuf[sizeof(s_fontPathBuf) - 1] = '\0';
-    }
-
-    ImGui::SetNextItemWidth(380.0f);
-    if (ImGui::InputTextWithHint("Font Path##custom_font_path", "Path to .ttf or .otf file (empty for default)", s_fontPathBuf, sizeof(s_fontPathBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear##clear_font_path")) {
-        s_fontPathBuf[0] = '\0';
-        if (setFontPath(config, "", callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-
     ImGui::Spacing();
-    ImGui::TextDisabled("Select standard system fonts or configure custom TTF/OTF path. Dynamically rebuilds font atlas.");
+    ImGui::TextDisabled("Select bundled or system font family. Dynamically rebuilds font atlas.");
 
     return modified;
 }

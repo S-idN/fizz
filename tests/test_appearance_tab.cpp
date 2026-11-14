@@ -368,6 +368,11 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Font: ") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Changes apply live without restart") == std::string::npos);
 
+    // Verify custom font path input and Clear button are absent
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("custom TTF/OTF path") == std::string::npos);
+
     // Frame 2: Render with explicit AppearanceCallbacks wired
     int resizeCount = 0;
     int fontRebuildCount = 0;
@@ -404,6 +409,11 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Size:") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
+
+    // Verify custom font path input and Clear button are absent
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("custom TTF/OTF path") == std::string::npos);
 
     ImGui::DestroyContext(ctx);
 
@@ -893,6 +903,129 @@ void test_appearance_window_centering_and_workarea() {
     std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
 }
 
+void test_appearance_font_selection_via_combo_box_and_no_custom_input() {
+    std::cout << "[TEST] Running test_appearance_font_selection_via_combo_box_and_no_custom_input...\n";
+
+    // 1. Verify discovered fonts order: Space Grotesk (Bundled Default) at index 0 followed by system fonts
+    const auto discovered = getDiscoveredSystemFonts();
+    APPEARANCE_TEST_ASSERT(!discovered.empty());
+    APPEARANCE_TEST_ASSERT(discovered[0].familyName == "Space Grotesk (Bundled Default)");
+    APPEARANCE_TEST_ASSERT(discovered[0].available);
+    APPEARANCE_TEST_ASSERT(!discovered[0].path.empty());
+
+    // 2. Headless UI rendering test with combo popup open and closed
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    int fontRebuildCount = 0;
+    std::string rebuiltFontPath;
+    float rebuiltFontSize = 0.0f;
+    fizz::ui::AppearanceCallbacks callbacks;
+    callbacks.onFontRebuild = [&](const std::string& path, float sz) {
+        fontRebuildCount++;
+        rebuiltFontPath = path;
+        rebuiltFontSize = sz;
+    };
+
+    // Frame 1: Render tab, verify no custom font path input or clear button
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_font_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config, callbacks);
+    ImGui::LogFinish();
+
+    std::string frame1Text;
+    if (const char* clip = ImGui::GetClipboardText()) {
+        frame1Text = clip;
+    }
+
+    APPEARANCE_TEST_ASSERT(frame1Text.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("clear_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("custom TTF/OTF path") == std::string::npos);
+
+    // Request opening combo popup for Frame 2
+    ImGuiID comboId = ImGui::GetID("Font Family##font_family");
+    ImGuiID popupId = ImHashStr("##ComboPopup", 0, comboId);
+    ImGui::OpenPopupEx(popupId, ImGuiPopupFlags_None);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Frame 2: Render with combo opened, verify bundled default is displayed
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_font_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config, callbacks);
+    ImGui::LogFinish();
+
+    std::string frame2Text;
+    if (const char* clip = ImGui::GetClipboardText()) {
+        frame2Text = clip;
+    }
+
+    APPEARANCE_TEST_ASSERT(frame2Text.find("Space Grotesk (Bundled Default)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("clear_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("custom TTF/OTF path") == std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext(ctx);
+
+    // 3. Selection updates configuration, rebuilds font atlas, and triggers callbacks
+    if (discovered.size() > 1) {
+        const auto& targetFont = discovered[1];
+        bool changed = fizz::ui::setFontPath(config, targetFont.path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(changed);
+        APPEARANCE_TEST_ASSERT(config.font_path == targetFont.path);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 1);
+        APPEARANCE_TEST_ASSERT(rebuiltFontPath == targetFont.path);
+        APPEARANCE_TEST_ASSERT(nearEqual(rebuiltFontSize, config.font_size));
+
+        // Redundant selection does not trigger reload
+        bool redundant = fizz::ui::setFontPath(config, targetFont.path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(!redundant);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 1);
+
+        // Selecting bundled default updates config.font_path and triggers reload
+        bool changedBack = fizz::ui::setFontPath(config, discovered[0].path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(changedBack);
+        APPEARANCE_TEST_ASSERT(config.font_path == discovered[0].path);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 2);
+        APPEARANCE_TEST_ASSERT(rebuiltFontPath == discovered[0].path);
+    }
+
+    // 4. Structural verification of AppearanceTab.cpp
+    fs::path tabSourcePath = fs::path(__FILE__).parent_path().parent_path() / "services" / "AppearanceTab.cpp";
+    if (fs::exists(tabSourcePath)) {
+        std::ifstream in(tabSourcePath);
+        std::string sourceContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        APPEARANCE_TEST_ASSERT(sourceContent.find("##custom_font_path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("##clear_font_path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("s_fontPathBuf") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("custom TTF/OTF path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("Font Family##font_family") != std::string::npos);
+    }
+
+    std::cout << "[PASS] test_appearance_font_selection_via_combo_box_and_no_custom_input passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -907,4 +1040,5 @@ void run_appearance_tab_tests() {
     test_appearance_custom_font_and_icon_merging();
     test_appearance_window_centering_and_workarea();
     test_settings_tab_order_and_clean_footer();
+    test_appearance_font_selection_via_combo_box_and_no_custom_input();
 }
