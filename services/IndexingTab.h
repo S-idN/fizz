@@ -34,6 +34,7 @@ struct PresetProfile {
 };
 
 PresetProfile getPresetProfile(PresetType type, const std::string& customHome = "");
+std::string getPresetTooltipText(PresetType type, const std::string& customHome = "");
 
 enum class MutationResult {
     Success,
@@ -83,6 +84,11 @@ struct IndexingTabState {
     std::optional<PresetType> pendingPreset = std::nullopt;
     bool showPresetConfirmationModal = false;
     bool showGodModeWarningModal = false;
+
+    // Preset button bounding boxes recorded during rendering (screen-space)
+    // 0: Minimalist, 1: StandardDesktop, 2: Developer, 3: GodMode
+    ImVec2 presetButtonMin[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
+    ImVec2 presetButtonMax[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
 
     void requestApplyPreset(PresetType type) {
         pendingPreset = type;
@@ -136,6 +142,9 @@ public:
     std::optional<PresetType> getPendingPreset() const { return m_state.pendingPreset; }
     std::string getPresetConfirmationMessage(const FizzConfig& config) const;
     std::string getGodModeWarningMessage(const FizzConfig& config) const;
+    std::string getPresetTooltip(PresetType type, const std::string& customHome = "") const {
+        return getPresetTooltipText(type, customHome);
+    }
 
 private:
     IndexingTabState m_state;

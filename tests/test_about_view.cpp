@@ -16,6 +16,7 @@
 #include "services/FileSearch.h"
 #include "services/Theme.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -339,6 +340,53 @@ void test_headless_about_view_rendering() {
     std::cout << "[PASS] test_headless_about_view_rendering passed.\n";
 }
 
+void test_about_view_clean_footer_no_return_hint() {
+    std::cout << "[TEST] Running test_about_view_clean_footer_no_return_hint...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    io.Fonts->AddFontDefault();
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+    ViewModeStateMachine stateMachine(ViewMode::About);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("fizz_test_window", nullptr);
+
+    ImGui::LogToBuffer(10);
+    fizz::ui::renderAboutView(config, stateMachine);
+    ImGui::LogFinish();
+
+    ImGuiContext& g = *GImGui;
+    std::string loggedText = g.LogBuffer.c_str();
+
+    // Acceptance criteria: footer hint text is removed from About view
+    ABOUT_TEST_ASSERT(loggedText.find("Press Escape or click '← Back to Search' to return.") == std::string::npos);
+    ABOUT_TEST_ASSERT(loggedText.find("Back to Search") == std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+
+    ImGui::DestroyContext(ctx);
+
+    // Source verification for AboutView.cpp
+    fs::path aboutViewCpp = fs::path(__FILE__).parent_path().parent_path() / "services" / "AboutView.cpp";
+    if (fs::exists(aboutViewCpp)) {
+        std::ifstream in(aboutViewCpp);
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        ABOUT_TEST_ASSERT(content.find("Press Escape or click '← Back to Search' to return.") == std::string::npos);
+    }
+
+    std::cout << "[PASS] test_about_view_clean_footer_no_return_hint passed.\n";
+}
+
 void run_about_view_tests() {
     test_about_view_metadata();
     test_shortcut_cheat_sheet_content();
@@ -347,4 +395,5 @@ void run_about_view_tests() {
     test_cache_diagnostics_collection();
     test_daemon_diagnostics_states();
     test_headless_about_view_rendering();
+    test_about_view_clean_footer_no_return_hint();
 }
