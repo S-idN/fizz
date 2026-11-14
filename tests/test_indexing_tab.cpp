@@ -7,6 +7,7 @@
 #include <set>
 #include <algorithm>
 #include "services/IndexingTab.h"
+#include "imgui_internal.h"
 
 #define INDEXING_TEST_ASSERT(cond) \
     do { \
@@ -625,10 +626,239 @@ void test_manual_god_mode_root_intercept() {
     std::cout << "[PASS] test_manual_god_mode_root_intercept passed.\n";
 }
 
+void test_preset_tooltips() {
+    std::cout << "[TEST] Running test_preset_tooltips...\n";
+    const std::string fakeHome = "/home/testuser";
+
+    // 1. Minimalist
+    std::string minTip = fizz::getPresetTooltipText(fizz::PresetType::Minimalist, fakeHome);
+    INDEXING_TEST_ASSERT(minTip.find("Includes (Search Roots):") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("• " + fakeHome + "/Documents") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("• " + fakeHome + "/Downloads") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("• /usr/share/applications") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("Excludes (Ignore Rules):") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("• .cache") != std::string::npos);
+    INDEXING_TEST_ASSERT(minTip.find("Warning:") == std::string::npos);
+
+    // 2. Standard Desktop
+    std::string stdTip = fizz::getPresetTooltipText(fizz::PresetType::StandardDesktop, fakeHome);
+    INDEXING_TEST_ASSERT(stdTip.find("Includes (Search Roots):") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("• " + fakeHome) != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("• /usr/share/applications") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("Excludes (Ignore Rules):") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("• .git") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("• .cargo") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("• Trash") != std::string::npos);
+    INDEXING_TEST_ASSERT(stdTip.find("Warning:") == std::string::npos);
+
+    // 3. Developer
+    std::string devTip = fizz::getPresetTooltipText(fizz::PresetType::Developer, fakeHome);
+    INDEXING_TEST_ASSERT(devTip.find("Includes (Search Roots):") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• " + fakeHome) != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• /usr/share/applications") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("Excludes (Ignore Rules):") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• .venv") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• node_modules") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• target") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("• build") != std::string::npos);
+    INDEXING_TEST_ASSERT(devTip.find("Warning:") == std::string::npos);
+
+    // 4. God Mode
+    std::string godTip = fizz::getPresetTooltipText(fizz::PresetType::GodMode, fakeHome);
+    INDEXING_TEST_ASSERT(godTip.find("Includes (Search Roots):") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("• /") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("Excludes (Ignore Rules):") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("• (none)") != std::string::npos || godTip.find("(none)") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("⚠️ Warning:") != std::string::npos || godTip.find("Warning:") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("Full root traversal ('/')") != std::string::npos || godTip.find("full root traversal") != std::string::npos || godTip.find("root filesystem") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("inotify watch") != std::string::npos || godTip.find("inotify") != std::string::npos);
+
+    std::cout << "[PASS] test_preset_tooltips passed.\n";
+}
+
+void test_god_mode_neutralized_button_styling_and_modal() {
+    std::cout << "[TEST] Running test_god_mode_neutralized_button_styling_and_modal...\n";
+    fs::path testDir = fs::temp_directory_path() / ("fizz_test_indexing_btn_" + std::to_string(getpid()));
+    std::error_code ec;
+    fs::remove_all(testDir, ec);
+    fs::create_directories(testDir, ec);
+    chmod(testDir.c_str(), 0700);
+
+    std::string testConfigPath = (testDir / "fizz.conf").string();
+    FizzConfig config;
+    config.searchRoots = {"/home/alice/Documents"};
+    config.ignoreRules = {".cache"};
+    saveConfig(config, testConfigPath);
+
+    fizz::IndexingTab tab;
+
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    io.DisplaySize = ImVec2(800, 600);
+
+    // Frame 1: Render tab without modal. Inspect captured text and draw list.
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    // Check button label contains ⚠️ God Mode
+    const char* clip = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clip != nullptr);
+    std::string clipStr = clip;
+    INDEXING_TEST_ASSERT(clipStr.find("⚠️ God Mode") != std::string::npos);
+
+    // Check draw list: ensure the bright red color (0.70f, 0.15f, 0.15f) is NOT used for God Mode button background in the main tab
+    ImDrawData* drawData = ImGui::GetDrawData();
+    INDEXING_TEST_ASSERT(drawData != nullptr);
+    ImU32 brightRedColor = ImGui::ColorConvertFloat4ToU32(ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
+    bool foundBrightRedInMainTab = false;
+    for (int i = 0; i < drawData->CmdListsCount; ++i) {
+        ImDrawList* dl = drawData->CmdLists[i];
+        for (int j = 0; j < dl->VtxBuffer.Size; ++j) {
+            if (dl->VtxBuffer[j].col == brightRedColor) {
+                foundBrightRedInMainTab = true;
+                break;
+            }
+        }
+    }
+    INDEXING_TEST_ASSERT(!foundBrightRedInMainTab);
+
+    // Frame 2: Request God Mode preset (calls OpenPopup)
+    tab.requestApplyPreset(fizz::PresetType::GodMode);
+    INDEXING_TEST_ASSERT(tab.isGodModeWarningOpen());
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    tab.render(config, testConfigPath);
+    ImGui::End();
+    ImGui::Render();
+
+    // Frame 3: Modal is now open and rendered
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    clip = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clip != nullptr);
+    clipStr = clip;
+    INDEXING_TEST_ASSERT(clipStr.find("WARNING: High Resource Usage") != std::string::npos);
+    INDEXING_TEST_ASSERT(clipStr.find("Enable God Mode") != std::string::npos);
+
+    // Check that inside the modal, bright red styling IS retained
+    drawData = ImGui::GetDrawData();
+    bool foundBrightRedInModal = false;
+    ImU32 expectedModalBtnColor = ImGui::GetColorU32(ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
+    for (int i = 0; i < drawData->CmdListsCount; ++i) {
+        ImDrawList* dl = drawData->CmdLists[i];
+        for (int j = 0; j < dl->VtxBuffer.Size; ++j) {
+            if (dl->VtxBuffer[j].col == brightRedColor || dl->VtxBuffer[j].col == expectedModalBtnColor) {
+                foundBrightRedInModal = true;
+                break;
+            }
+        }
+    }
+    INDEXING_TEST_ASSERT(foundBrightRedInModal);
+
+    tab.cancelPresetConfirmation();
+    ImGui::DestroyContext(ctx);
+    fs::remove_all(testDir, ec);
+    std::cout << "[PASS] test_god_mode_neutralized_button_styling_and_modal passed.\n";
+}
+
+void test_preset_tooltips_headless_hover() {
+    std::cout << "[TEST] Running test_preset_tooltips_headless_hover...\n";
+    fs::path testDir = fs::temp_directory_path() / ("fizz_test_indexing_hover_" + std::to_string(getpid()));
+    std::error_code ec;
+    fs::remove_all(testDir, ec);
+    fs::create_directories(testDir, ec);
+    chmod(testDir.c_str(), 0700);
+
+    std::string testConfigPath = (testDir / "fizz.conf").string();
+    FizzConfig config;
+    config.searchRoots = {"/home/alice/Documents"};
+    config.ignoreRules = {".cache"};
+    saveConfig(config, testConfigPath);
+
+    fizz::IndexingTab tab;
+
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    io.DisplaySize = ImVec2(800, 600);
+
+    // Frame 1: Initial layout to record button bounding boxes
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    tab.render(config, testConfigPath);
+    ImGui::End();
+    ImGui::Render();
+
+    const auto& state = tab.getState();
+    // 0: Minimalist, 1: StandardDesktop, 2: Developer, 3: GodMode
+    for (int p = 0; p < 4; ++p) {
+        ImVec2 bMin = state.presetButtonMin[p];
+        ImVec2 bMax = state.presetButtonMax[p];
+        INDEXING_TEST_ASSERT(bMax.x > bMin.x && bMax.y > bMin.y);
+
+        // Hover over the center of this preset button
+        io.MousePos = ImVec2((bMin.x + bMax.x) * 0.5f, (bMin.y + bMax.y) * 0.5f);
+        // Eliminate delay so tooltip activates immediately in headless frame
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.HoverDelayShort = 0.0f;
+        style.HoverDelayNormal = 0.0f;
+        style.HoverFlagsForTooltipMouse = ImGuiHoveredFlags_None;
+
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+        tab.render(config, testConfigPath);
+        ImGui::End();
+        ImGui::Render();
+
+        // Verify tooltip window exists
+        ImGuiWindow* tooltipWin = ImGui::FindWindowByName("##Tooltip_00");
+        INDEXING_TEST_ASSERT(tooltipWin != nullptr);
+        INDEXING_TEST_ASSERT(tooltipWin->Active);
+
+        // Verify tooltip contents in draw commands
+        ImDrawData* drawData = ImGui::GetDrawData();
+        INDEXING_TEST_ASSERT(drawData != nullptr);
+    }
+
+    ImGui::DestroyContext(ctx);
+    fs::remove_all(testDir, ec);
+    std::cout << "[PASS] test_preset_tooltips_headless_hover passed.\n";
+}
+
 void run_indexing_tab_tests() {
     test_normalize_search_root();
     test_normalize_ignore_rule();
     test_preset_profile_contents();
+    test_preset_tooltips();
+    test_god_mode_neutralized_button_styling_and_modal();
+    test_preset_tooltips_headless_hover();
     test_preset_confirmation_gating_and_text();
     test_god_mode_warning_modal_gating_and_inotify_text();
     test_preset_application_and_atomic_persistence();

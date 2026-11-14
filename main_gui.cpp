@@ -331,6 +331,11 @@ int main() {
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
             if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+                if (ImGui::BeginTabItem("General")) {
+                    generalTab.render(config);
+                    ImGui::EndTabItem();
+                }
+
                 if (ImGui::BeginTabItem("Appearance")) {
                     fizz::ui::renderAppearanceTab(config, appearanceCallbacks);
                     ImGui::EndTabItem();
@@ -346,17 +351,8 @@ int main() {
                     ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginTabItem("General")) {
-                    generalTab.render(config);
-                    ImGui::EndTabItem();
-                }
-
                 ImGui::EndTabBar();
             }
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
             ImGui::EndChild();
             break;
         }

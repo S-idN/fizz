@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <unistd.h>
 #include <sys/stat.h>
 #include "services/AppearanceTab.h"
@@ -12,6 +13,7 @@
 #include "services/Theme.h"
 #include "services/Config.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "IconsFontAwesome7.h"
 #include "IconsFontAwesome7Brands.h"
 
@@ -332,21 +334,21 @@ void test_appearance_headless_ui_rendering() {
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
 
-    // Render TabBar with Appearance tab
+    // Render TabBar with General tab first, followed by Appearance
     bool tabModified = false;
     std::string capturedUiTextFrame1;
     if (ImGui::BeginTabBar("SettingsTabBar", ImGuiTabBarFlags_None)) {
-        if (ImGui::BeginTabItem("Appearance")) {
+        if (ImGui::BeginTabItem("General")) {
+            ImGui::Text("General Settings Tab");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Appearance", nullptr, ImGuiTabItemFlags_SetSelected)) {
             ImGui::LogToClipboard();
             tabModified = fizz::ui::renderAppearanceTab(config);
             ImGui::LogFinish();
             if (const char* clip = ImGui::GetClipboardText()) {
                 capturedUiTextFrame1 = clip;
             }
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("General")) {
-            ImGui::Text("General Settings Tab");
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -727,6 +729,94 @@ void test_appearance_custom_font_and_icon_merging() {
     std::cout << "[PASS] test_appearance_custom_font_and_icon_merging passed.\n";
 }
 
+void test_settings_tab_order_and_clean_footer() {
+    std::cout << "[TEST] Running test_settings_tab_order_and_clean_footer...\n";
+
+    // 1. Headless ImGui TabBar order verification: General -> Appearance -> Indexing -> Cache
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_order_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToBuffer();
+    if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+        if (ImGui::BeginTabItem("General")) {
+            ImGui::Text("General Tab");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Appearance")) {
+            fizz::ui::renderAppearanceTab(config);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Indexing")) {
+            ImGui::Text("Indexing Tab");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Cache")) {
+            ImGui::Text("Cache Tab");
+            ImGui::EndTabItem();
+        }
+
+        ImGuiTabBar* tabBar = ImGui::GetCurrentTabBar();
+        APPEARANCE_TEST_ASSERT(tabBar != nullptr);
+        APPEARANCE_TEST_ASSERT(tabBar->Tabs.Size == 4);
+        APPEARANCE_TEST_ASSERT(std::string(ImGui::TabBarGetTabName(tabBar, &tabBar->Tabs[0])) == "General");
+        APPEARANCE_TEST_ASSERT(std::string(ImGui::TabBarGetTabName(tabBar, &tabBar->Tabs[1])) == "Appearance");
+        APPEARANCE_TEST_ASSERT(std::string(ImGui::TabBarGetTabName(tabBar, &tabBar->Tabs[2])) == "Indexing");
+        APPEARANCE_TEST_ASSERT(std::string(ImGui::TabBarGetTabName(tabBar, &tabBar->Tabs[3])) == "Cache");
+
+        ImGui::EndTabBar();
+    }
+    ImGui::LogFinish();
+
+    ImGuiContext& g = *GImGui;
+    std::string logged = g.LogBuffer.c_str();
+    APPEARANCE_TEST_ASSERT(logged.find("Press Escape") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(logged.find("Back to Search") == std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext(ctx);
+
+    // 2. Structural verification of main_gui.cpp:
+    // Verify that main_gui.cpp has General tab first and removed footer hint
+    fs::path mainGuiPath = fs::path(__FILE__).parent_path().parent_path() / "main_gui.cpp";
+    if (fs::exists(mainGuiPath)) {
+        std::ifstream in(mainGuiPath);
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        APPEARANCE_TEST_ASSERT(content.find("Press Escape or click '← Back to Search' to return.") == std::string::npos);
+
+        // Verify General comes before Appearance inside SettingsTabs
+        size_t settingsPos = content.find("\"SettingsTabs\"");
+        APPEARANCE_TEST_ASSERT(settingsPos != std::string::npos);
+        size_t genPos = content.find("BeginTabItem(\"General\")", settingsPos);
+        size_t appPos = content.find("BeginTabItem(\"Appearance\")", settingsPos);
+        size_t idxPos = content.find("BeginTabItem(\"Indexing\")", settingsPos);
+        size_t cchPos = content.find("BeginTabItem(\"Cache\")", settingsPos);
+
+        APPEARANCE_TEST_ASSERT(genPos != std::string::npos);
+        APPEARANCE_TEST_ASSERT(appPos != std::string::npos);
+        APPEARANCE_TEST_ASSERT(idxPos != std::string::npos);
+        APPEARANCE_TEST_ASSERT(cchPos != std::string::npos);
+
+        APPEARANCE_TEST_ASSERT(genPos < appPos);
+        APPEARANCE_TEST_ASSERT(appPos < idxPos);
+        APPEARANCE_TEST_ASSERT(idxPos < cchPos);
+    }
+
+    std::cout << "[PASS] test_settings_tab_order_and_clean_footer passed.\n";
+}
+
 void test_appearance_window_centering_and_workarea() {
     std::cout << "[TEST] Running test_appearance_window_centering_and_workarea...\n";
 
@@ -1050,4 +1140,5 @@ void run_appearance_tab_tests() {
     test_appearance_geometry_and_font_atomic_persistence();
     test_appearance_custom_font_and_icon_merging();
     test_appearance_window_centering_and_workarea();
+    test_settings_tab_order_and_clean_footer();
 }

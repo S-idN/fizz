@@ -337,8 +337,6 @@ void renderAboutView(const FizzConfig& config, ViewModeStateMachine& stateMachin
         ImGui::EndTable();
     }
 
-    ImGui::Spacing();
-    ImGui::TextDisabled("Press Escape or click '← Back to Search' to return.");
     ImGui::EndChild();
 }
 
