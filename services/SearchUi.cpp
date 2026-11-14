@@ -1,31 +1,129 @@
 #include "SearchUi.h"
 #include "Theme.h"
 #include "AppLauncher.h"
+#include "BuiltinActions.h"
 #include <algorithm>
+#include <filesystem>
 
 namespace fizz::ui {
 
+static bool s_iconFontSuppressedForTesting = false;
+
+void setIconFontSuppressedForTesting(bool suppressed) {
+    s_iconFontSuppressedForTesting = suppressed;
+}
+
+bool isIconFontSuppressedForTesting() {
+    return s_iconFontSuppressedForTesting;
+}
+
+bool isIconFontAvailable() {
+    if (s_iconFontSuppressedForTesting) {
+        return false;
+    }
+    if (!ImGui::GetCurrentContext()) {
+        return false;
+    }
+    ImFont* font = ImGui::GetFont();
+    if (!font && ImGui::GetIO().Fonts && ImGui::GetIO().Fonts->Fonts.Size > 0) {
+        font = ImGui::GetIO().FontDefault ? ImGui::GetIO().FontDefault : ImGui::GetIO().Fonts->Fonts[0];
+    }
+    if (!font || !font->IsLoaded()) {
+        return false;
+    }
+    return font->IsGlyphInFont(0xf060);
+}
+
+const char* getGeneralTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_SLIDERS " General" : "General";
+}
+
+const char* getAppearanceTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_PALETTE " Appearance" : "Appearance";
+}
+
+const char* getIndexingTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_TREE " Indexing" : "Indexing";
+}
+
+const char* getCacheTabLabel() {
+    return isIconFontAvailable() ? ICON_FA_HARD_DRIVE " Cache" : "Cache";
+}
+
+const char* getViewHeaderReturnLabel() {
+    return isIconFontAvailable() ? ICON_FA_ARROW_LEFT " Esc" : "Esc";
+}
+
+const char* getSearchPromptIndicator() {
+    return isIconFontAvailable() ? ICON_FA_MAGNIFYING_GLASS : ">";
+}
+
+const char* getCategoryBadgeLabel(std::string_view category) {
+    bool hasIcon = isIconFontAvailable();
+    if (category == "app") {
+        return hasIcon ? ICON_FA_WINDOW_MAXIMIZE " app" : "app";
+    }
+    if (category == "untrusted-app" || category == "untrusted") {
+        return hasIcon ? ICON_FA_TRIANGLE_EXCLAMATION " untrusted-app" : "untrusted-app";
+    }
+    if (category == "exec") {
+        return hasIcon ? ICON_FA_TERMINAL " exec" : "exec";
+    }
+    if (category == "code") {
+        return hasIcon ? ICON_FA_CODE " code" : "code";
+    }
+    if (category == "doc") {
+        return hasIcon ? ICON_FA_FILE_LINES " doc" : "doc";
+    }
+    if (category == "folder") {
+        return hasIcon ? ICON_FA_FOLDER " folder" : "folder";
+    }
+    if (category == "action") {
+        return hasIcon ? ICON_FA_BOLT " action" : "action";
+    }
+    if (category == "media") {
+        return hasIcon ? ICON_FA_PHOTO_FILM " media" : "media";
+    }
+    if (category == "image") {
+        return hasIcon ? ICON_FA_IMAGE " image" : "image";
+    }
+    if (category == "archive") {
+        return hasIcon ? ICON_FA_BOX_ARCHIVE " archive" : "archive";
+    }
+    if (category == "text") {
+        return hasIcon ? ICON_FA_FILE_LINES " text" : "text";
+    }
+    return "";
+}
+
+const char* getRebuildCacheButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ARROWS_ROTATE " Rebuild Cache##action" : "Rebuild Cache##action";
+}
+
+const char* getResetDefaultsButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ROTATE_LEFT " Reset to Factory Defaults##btn_reset_defaults" : "Reset to Factory Defaults##btn_reset_defaults";
+}
+
+const char* getCacheResetDefaultButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_ROTATE_LEFT " Reset Default##cache" : "Reset Default##cache";
+}
+
+const char* getAddRootButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_PLUS " Add Root##btn_add_root" : "Add Root##btn_add_root";
+}
+
+const char* getBrowseRootButtonLabel() {
+    return isIconFontAvailable() ? ICON_FA_FOLDER_OPEN " Browse##btn_browse_root" : "Browse##btn_browse_root";
+}
+
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize) {
-    float pillW = std::max(0.0f, width);
-    float pillH = std::max(0.0f, height);
-    ImVec2 pillMin = origin;
-    ImVec2 pillMax = {origin.x + pillW, origin.y + pillH};
-
-    float promptX = pillMin.x + Metrics::kSearchPillPaddingX;
-    float promptY = pillMin.y + (pillH - fontSize) * 0.5f;
-
-    float inputX = promptX + Metrics::kPromptGlyphWidth + Metrics::kPromptSpacing;
-    float inputY = pillMin.y;
-    float inputW = std::max(0.0f, pillMax.x - Metrics::kSearchPillPaddingX - inputX);
-
-    return SearchPillGeometry{
-        pillMin,
-        pillMax,
-        Metrics::kSearchPillRounding,
-        ImVec2(promptX, promptY),
-        ImVec2(inputX, inputY),
-        inputW
+    auto measureFn = [](std::string_view s) -> float {
+        if (ImGui::GetCurrentContext()) {
+            return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+        }
+        return Metrics::kPromptGlyphWidth;
     };
+    return calculateSearchPillGeometry(origin, width, height, measureFn, fontSize);
 }
 
 std::string formatHitCount(int count) {
@@ -50,8 +148,9 @@ const std::vector<ShortcutItem>& getNavigationShortcuts() {
 const ImWchar* getUiGlyphRanges() {
     static const ImWchar ranges[] = {
         0x0020, 0x00FF, // Basic Latin + Latin Supplement
-        0x2190, 0x21FF, // Arrows (includes ↵ U+21B5, ⇧ U+21E7)
-        0x26A0, 0x26A0, // Warning sign ⚠️
+        0x2100, 0x21FF, // Letterlike Symbols & Arrows (includes ℹ U+2139, ↵ U+21B5, ⇧ U+21E7)
+        0x25A0, 0x25FF, // Geometric Shapes (includes ● U+25CF)
+        0x2600, 0x26FF, // Miscellaneous Symbols (includes ⚙ U+2699, ⚠️ U+26A0)
         0,
     };
     return ranges;
@@ -92,6 +191,14 @@ BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax,
 }
 
 CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
+    if (fizz::isBuiltinActionPath(path)) {
+        return {getCategoryBadgeLabel("action"), theme::Palette::kTagAction};
+    }
+
+    if (!path.empty() && path.back() == '/') {
+        return {getCategoryBadgeLabel("folder"), theme::Palette::kTagYellow};
+    }
+
     std::string_view cat = classifyPath(path, state);
     if (cat.empty()) {
         return {"", ImVec4(0, 0, 0, 0)};
@@ -99,30 +206,30 @@ CategoryBadge getCategoryBadge(std::string_view path, ExecState state) {
 
     if (cat == "app") {
         if (!isDesktopEntryTrusted(path)) {
-            return {"untrusted-app", theme::Palette::kAmber};
+            return {getCategoryBadgeLabel("untrusted-app"), theme::Palette::kAmber};
         }
-        return {"app", theme::Palette::kAccent};
+        return {getCategoryBadgeLabel("app"), theme::getActiveAccent()};
     }
 
     struct CategoryMapping {
         std::string_view cat;
-        std::string_view label;
         ImVec4 color;
     };
 
     static constexpr CategoryMapping kTable[] = {
-        {"exec",    "exec",    theme::Palette::kTagOrange},
-        {"code",    "code",    theme::Palette::kTagPurple},
-        {"doc",     "doc",     theme::Palette::kTagTeal},
-        {"media",   "media",   theme::Palette::kTagGreen},
-        {"image",   "image",   theme::Palette::kTagPink},
-        {"archive", "archive", theme::Palette::kTagGrey},
-        {"text",    "text",    theme::Palette::kTagBlue},
+        {"exec",    theme::Palette::kTagOrange},
+        {"code",    theme::Palette::kTagPurple},
+        {"doc",     theme::Palette::kTagTeal},
+        {"media",   theme::Palette::kTagGreen},
+        {"image",   theme::Palette::kTagPink},
+        {"archive", theme::Palette::kTagGrey},
+        {"text",    theme::Palette::kTagBlue},
+        {"folder",  theme::Palette::kTagYellow},
     };
 
     for (const auto& item : kTable) {
         if (cat == item.cat) {
-            return {item.label, item.color};
+            return {getCategoryBadgeLabel(item.cat), item.color};
         }
     }
 
@@ -184,11 +291,12 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder, b
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // Draw pill background and border
-    dl->AddRectFilled(geom.pillMin, geom.pillMax, ImGui::GetColorU32(theme::Palette::kFrameBg), geom.rounding);
-    dl->AddRect(geom.pillMin, geom.pillMax, ImGui::GetColorU32(theme::Palette::kBorder), geom.rounding);
+    dl->AddRectFilled(geom.pillMin, geom.pillMax, ImGui::GetColorU32(ImGuiCol_FrameBg), geom.rounding);
+    dl->AddRect(geom.pillMin, geom.pillMax, ImGui::GetColorU32(ImGuiCol_Border), geom.rounding);
 
-    // Draw prominent prompt indicator in Adwaita blue accent
-    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::Palette::kAccent), ">");
+    // Draw prominent prompt indicator in active accent
+    const char* prompt = getSearchPromptIndicator();
+    dl->AddText(geom.promptPos, ImGui::GetColorU32(theme::getActiveAccent()), prompt);
 
     // Position and render InputTextWithHint inside the pill container
     ImGui::SetCursorScreenPos(geom.inputPos);
@@ -225,7 +333,7 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
     dl->AddLine(
         ImVec2(cursor.x, cursor.y),
         ImVec2(cursor.x + availW, cursor.y),
-        ImGui::GetColorU32(theme::Palette::kBorder)
+        ImGui::GetColorU32(ImGuiCol_Border)
     );
 
     float centerY = cursor.y + (footerH - ImGui::GetFontSize()) * 0.5f + 2.0f;
@@ -237,7 +345,7 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
     } else {
         std::string hitsText = formatHitCount(hitCount);
         ImVec2 hitsPos = {cursor.x + 4.0f, centerY};
-        dl->AddText(hitsPos, ImGui::GetColorU32(theme::Palette::kDim), hitsText.c_str());
+        dl->AddText(hitsPos, ImGui::GetColorU32(ImGuiCol_TextDisabled), hitsText.c_str());
     }
 
     // Keyboard navigation shortcuts formatted legibly on right
@@ -276,22 +384,76 @@ void renderStatusFooter(int hitCount, std::string_view warningMsg) {
         // Key badge background & subtle border
         ImVec2 bMin = {curX, badgeY};
         ImVec2 bMax = {curX + m.badgeW, badgeY + badgeH};
-        dl->AddRectFilled(bMin, bMax, ImGui::GetColorU32(theme::Palette::kFrameBg), 4.0f);
-        dl->AddRect(bMin, bMax, ImGui::GetColorU32(theme::Palette::kBorder), 4.0f);
+        dl->AddRectFilled(bMin, bMax, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+        dl->AddRect(bMin, bMax, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
 
         // Key indicator text
         ImVec2 keyTextPos = {curX + badgePadX, centerY};
-        dl->AddText(keyTextPos, ImGui::GetColorU32(theme::Palette::kText), item.key.data(), item.key.data() + item.key.size());
+        dl->AddText(keyTextPos, ImGui::GetColorU32(ImGuiCol_Text), item.key.data(), item.key.data() + item.key.size());
         curX += m.badgeW + keyLabelGap;
 
         // Action label
         ImVec2 labelPos = {curX, centerY};
-        dl->AddText(labelPos, ImGui::GetColorU32(theme::Palette::kDim), item.action.data(), item.action.data() + item.action.size());
+        dl->AddText(labelPos, ImGui::GetColorU32(ImGuiCol_TextDisabled), item.action.data(), item.action.data() + item.action.size());
         curX += m.labelW + itemGap;
     }
 
     // Advance layout cursor to reserve footer area cleanly
     ImGui::Dummy(ImVec2(availW, footerH));
+}
+
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title,
+                                             float headerHeight,
+                                             float fontSize,
+                                             std::string_view backLabel) {
+    auto measureFn = [](std::string_view s) -> float {
+        return ImGui::CalcTextSize(s.data(), s.data() + s.size()).x;
+    };
+    return calculateViewHeaderLayout(origin, width, title, measureFn, headerHeight, fontSize, backLabel);
+}
+
+bool renderViewHeader(std::string_view title, std::string_view backLabel) {
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    float availW = ImGui::GetContentRegionAvail().x;
+    float fontSize = ImGui::GetFontSize();
+    float headerH = Metrics::kHeaderHeight;
+
+    std::string_view effectiveLabel = backLabel.empty() ? getViewHeaderReturnLabel() : backLabel;
+
+    auto geom = calculateViewHeaderLayout(cursor, availW, title, headerH, fontSize, effectiveLabel);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Position cursor for back button
+    ImGui::SetCursorScreenPos(geom.backButtonMin);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, Metrics::kBackBtnRounding);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Metrics::kBackBtnPaddingX, Metrics::kBackBtnPaddingY));
+
+    std::string buttonId = std::string(effectiveLabel) + "##back";
+    bool backClicked = ImGui::Button(buttonId.c_str(), ImVec2(geom.backButtonWidth, geom.backButtonHeight));
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+
+    // Draw Title text vertically aligned
+    dl->AddText(geom.titlePos, ImGui::GetColorU32(ImGuiCol_Text), title.data(), title.data() + title.size());
+
+    // Draw separator line at header bottom
+    dl->AddLine(
+        ImVec2(geom.headerMin.x, geom.separatorY),
+        ImVec2(geom.headerMax.x, geom.separatorY),
+        ImGui::GetColorU32(ImGuiCol_Border)
+    );
+
+    // Advance cursor past the header container
+    ImGui::SetCursorScreenPos(ImVec2(cursor.x, geom.separatorY + theme::Metrics::kItemSpacing.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+
+    return backClicked;
 }
 
 } // namespace fizz::ui
