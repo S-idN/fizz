@@ -171,7 +171,7 @@ const std::vector<ShortcutItem>& getNavigationShortcuts();
 const ImWchar* getUiGlyphRanges();
 
 // Calculates layout dimensions for pinning the status footer cleanly below the search hits list
-FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing = 4.0f);
+FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing = 10.0f);
 
 // Calculates geometry for compact rounded pill badge on row right edge
 BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax, float textWidth, float fontSize = 16.0f);

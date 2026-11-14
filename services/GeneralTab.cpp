@@ -121,7 +121,7 @@ void GeneralTab::render(FizzConfig& config, std::chrono::steady_clock::time_poin
     update(config, now);
 
     ImGui::Spacing();
-    ImGui::TextColored(fizz::theme::Palette::kAccent, "General Settings");
+    ImGui::TextColored(fizz::theme::getActiveAccent(), "General Settings");
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -136,7 +136,6 @@ void GeneralTab::render(FizzConfig& config, std::chrono::steady_clock::time_poin
         ImGui::SetTooltip("Dismisses launcher window automatically when application focus is lost.");
     }
 
-    ImGui::Spacing();
     ImGui::Spacing();
 
     // 2. View State Grace Period slider (1 to 15 seconds)
@@ -154,7 +153,9 @@ void GeneralTab::render(FizzConfig& config, std::chrono::steady_clock::time_poin
     ImGui::Spacing();
 
     // 3. Guarded "Reset to Factory Defaults" button
-    ImGui::Text("Factory Defaults:");
+    ImGui::TextColored(fizz::theme::getActiveAccent(), "Factory Defaults");
+    ImGui::Spacing();
+    ImGui::TextDisabled("Restore all application configurations, search roots, and appearance preferences to defaults.");
     ImGui::Spacing();
 
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.70f, 0.15f, 0.15f, 0.85f));
