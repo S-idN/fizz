@@ -155,7 +155,7 @@ std::string getPresetTooltipText(PresetType type, const std::string& customHome)
     }
 
     if (type == PresetType::GodMode) {
-        tooltip += "\n⚠️ Warning: Full root traversal ('/') indexes the entire filesystem and places heavy demand on kernel inotify watches.";
+        tooltip += "\n⚠️ Warning: Traverses entire root filesystem (/). Places heavy demand on CPU, RAM, and kernel inotify watches.";
     }
 
     return tooltip;
@@ -269,10 +269,6 @@ std::optional<PresetType> detectMatchingPreset(const FizzConfig& config, const s
     }
 
     return std::nullopt;
-}
-
-std::optional<PresetType> detectActivePreset(const FizzConfig& config, const std::string& customHome) {
-    return detectMatchingPreset(config, customHome);
 }
 
 MutationResult addSearchRoot(FizzConfig& config, std::string_view rawPath,
@@ -640,21 +636,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     bool rootAddClicked = ImGui::Button(addLabel, ImVec2(addBtnW, 0));
 
     if (browseClicked) {
-        FILE* fp = popen("zenity --file-selection --directory 2>/dev/null", "r");
-        if (fp) {
-            char pathBuf[1024];
-            if (fgets(pathBuf, sizeof(pathBuf), fp)) {
-                size_t len = strlen(pathBuf);
-                while (len > 0 && (pathBuf[len - 1] == '\n' || pathBuf[len - 1] == '\r')) {
-                    pathBuf[--len] = '\0';
-                }
-                if (len > 0 && len < sizeof(state.newRootBuffer)) {
-                    strncpy(state.newRootBuffer, pathBuf, sizeof(state.newRootBuffer) - 1);
-                    state.newRootBuffer[sizeof(state.newRootBuffer) - 1] = '\0';
-                }
-            }
-            pclose(fp);
-        }
+        state.setStatus("Browse clicked: select or type path in the input box.");
     }
     if (rootEnter || rootAddClicked) {
         std::string normalized = normalizeSearchRoot(state.newRootBuffer);

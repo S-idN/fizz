@@ -401,7 +401,7 @@ void test_preset_profile_contents() {
     checkNoDuplicates(stdProfile.ignoreRules, "StandardDesktop ignoreRules");
 
     // 3. Developer Profile
-    // Search Roots = ~ and /usr/share/applications; Ignore Rules = comprehensive toolchain exclusions
+    // Search Roots = ~ and /usr/share/applications; Ignore Rules = comprehensive toolchain ignore rules
     auto devProfile = fizz::getPresetProfile(fizz::PresetType::Developer, fakeHome);
     INDEXING_TEST_ASSERT(devProfile.name == "Developer");
     INDEXING_TEST_ASSERT(devProfile.searchRoots.size() == 2);
@@ -688,8 +688,11 @@ void test_preset_tooltips() {
     INDEXING_TEST_ASSERT(godTip.find("Excludes (Ignore Rules):") != std::string::npos);
     INDEXING_TEST_ASSERT(godTip.find("• (none)") != std::string::npos || godTip.find("(none)") != std::string::npos);
     INDEXING_TEST_ASSERT(godTip.find("⚠️ Warning:") != std::string::npos || godTip.find("Warning:") != std::string::npos);
-    INDEXING_TEST_ASSERT(godTip.find("Full root traversal ('/')") != std::string::npos || godTip.find("full root traversal") != std::string::npos || godTip.find("root filesystem") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("Traverses entire root filesystem (/)") != std::string::npos || godTip.find("root filesystem") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("CPU") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("RAM") != std::string::npos);
     INDEXING_TEST_ASSERT(godTip.find("inotify watch") != std::string::npos || godTip.find("inotify") != std::string::npos);
+    INDEXING_TEST_ASSERT(godTip.find("Warning: Traverses entire root filesystem (/). Places heavy demand on CPU, RAM, and kernel inotify watches.") != std::string::npos);
 
     std::cout << "[PASS] test_preset_tooltips passed.\n";
 }

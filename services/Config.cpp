@@ -1,5 +1,6 @@
 #include "Config.h"
 #include "FileSearch.h"
+#include "Theme.h"
 #include <cstdlib>
 #include <cctype>
 #include <cstring>
@@ -275,14 +276,9 @@ FizzConfig loadConfig(const std::string& configPath) {
             }
         } else if (lowerKey == "accent") {
             std::string a = stripQuotes(val);
-            std::transform(a.begin(), a.end(), a.begin(),
-                           [](unsigned char c) { return std::tolower(c); });
-            if (a == "blue" || a == "green" || a == "emerald" || a == "purple" ||
-                a == "amber" || a == "orange" || a == "red" || a == "crimson" ||
-                a == "rose" || a == "coral" || a == "indigo" || a == "cyan" ||
-                a == "sunset" || a == "lime" ||
-                a == "teal" || a == "pink") {
-                config.accent = a;
+            std::string normalized = fizz::theme::normalizeAccent(a);
+            if (!normalized.empty()) {
+                config.accent = normalized;
             } else {
                 config.accent = "blue";
             }

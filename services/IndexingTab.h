@@ -41,7 +41,6 @@ std::string getCustomBadgeTooltipText();
 // Comparison is order-insensitive and canonicalizes search roots and ignore rules.
 // Returns std::nullopt if the configuration corresponds to a Custom profile.
 std::optional<PresetType> detectMatchingPreset(const FizzConfig& config, const std::string& customHome = "");
-std::optional<PresetType> detectActivePreset(const FizzConfig& config, const std::string& customHome = "");
 
 enum class MutationResult {
     Success,

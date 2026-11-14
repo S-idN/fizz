@@ -392,10 +392,6 @@ const std::vector<CuratedAccent>& getCuratedAccents() {
     return s_accents;
 }
 
-static std::string normalizeAccentId(std::string_view accentId) {
-    return theme::normalizeAccent(accentId);
-}
-
 bool selectTheme(FizzConfig& config, std::string_view themeId, ImGuiStyle* style) {
     std::string lower = toLower(themeId);
     std::string normalized = (lower == "light") ? "light" : "dark";
@@ -416,7 +412,7 @@ bool selectTheme(FizzConfig& config, std::string_view themeId, ImGuiStyle* style
 }
 
 bool selectAccent(FizzConfig& config, std::string_view accentId, ImGuiStyle* style) {
-    std::string normalized = normalizeAccentId(accentId);
+    std::string normalized = theme::normalizeAccent(accentId);
 
     bool changed = (config.accent != normalized);
     config.accent = normalized;
@@ -466,7 +462,7 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     ImGui::Spacing();
 
     const auto& accents = getCuratedAccents();
-    std::string activeNorm = normalizeAccentId(config.accent);
+    std::string activeNorm = theme::normalizeAccent(config.accent);
 
     const ImVec2 swatchSize(kSwatchSize, kSwatchSize);
 
@@ -570,14 +566,11 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     ImGui::TextColored(theme::getActiveAccent(), "Typography & Font");
     ImGui::Spacing();
 
-    float fontSize = std::round(clampFontSize(config.font_size));
+    int intSize = static_cast<int>(std::round(clampFontSize(config.font_size)));
     ImGui::SetNextItemWidth(300.0f);
-    if (ImGui::SliderFloat("Font Size##font_sz", &fontSize, kMinFontSize, kMaxFontSize, "%.0f px")) {
-        float rounded = std::round(clampFontSize(fontSize));
-        if (std::fabs(config.font_size - rounded) >= 0.5f) {
-            if (setFontSize(config, rounded, callbacks.onFontRebuild)) {
-                modified = true;
-            }
+    if (ImGui::SliderInt("Font Size##font_size", &intSize, static_cast<int>(kMinFontSize), static_cast<int>(kMaxFontSize), "%d px")) {
+        if (setFontSize(config, static_cast<float>(intSize), callbacks.onFontRebuild)) {
+            modified = true;
         }
     }
     ImGui::SameLine();

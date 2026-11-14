@@ -72,6 +72,7 @@ add_executable(fizzd
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
+    services/Theme.cpp
 )
 
 target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
@@ -79,6 +80,7 @@ target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
 target_include_directories(fizzd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
 )
 
 target_link_libraries(fizzd PRIVATE Threads::Threads)
