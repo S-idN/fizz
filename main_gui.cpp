@@ -328,22 +328,22 @@ int main() {
 
             ImGui::BeginChild("settings_container", {0, 0}, false);
             if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
-                if (ImGui::BeginTabItem("General")) {
+                if (ImGui::BeginTabItem(fizz::ui::getGeneralTabLabel())) {
                     generalTab.render(config);
                     ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginTabItem("Appearance")) {
+                if (ImGui::BeginTabItem(fizz::ui::getAppearanceTabLabel())) {
                     fizz::ui::renderAppearanceTab(config, appearanceCallbacks);
                     ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginTabItem("Indexing")) {
+                if (ImGui::BeginTabItem(fizz::ui::getIndexingTabLabel())) {
                     indexingTab.render(config);
                     ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginTabItem("Cache")) {
+                if (ImGui::BeginTabItem(fizz::ui::getCacheTabLabel())) {
                     cacheTab.render(config);
                     ImGui::EndTabItem();
                 }

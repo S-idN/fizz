@@ -2,6 +2,7 @@
 #include "FileSearch.h"
 #include "LoadFile.h"
 #include "Theme.h"
+#include "SearchUi.h"
 #include "imgui.h"
 
 #include <cstdio>
@@ -459,9 +460,11 @@ void CacheTab::render(FizzConfig& config) {
 
     // Rebuild Cache action button and active loading spinner
     bool inProgress = isRebuilding();
+    const char* rebuildLabel = fizz::ui::getRebuildCacheButtonLabel();
+    float rebuildBtnW = std::max(120.0f, ImGui::CalcTextSize(rebuildLabel, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f);
     if (inProgress) {
         ImGui::BeginDisabled();
-        ImGui::Button("Rebuild Cache##action", {120.0f, 0});
+        ImGui::Button(rebuildLabel, {rebuildBtnW, 0});
         ImGui::EndDisabled();
 
         ImGui::SameLine();
@@ -469,7 +472,7 @@ void CacheTab::render(FizzConfig& config) {
         ImGui::SameLine();
         ImGui::TextColored(fizz::theme::getActiveAccent(), "Rebuilding index in background...");
     } else {
-        if (ImGui::Button("Rebuild Cache##action", {120.0f, 0})) {
+        if (ImGui::Button(rebuildLabel, {rebuildBtnW, 0})) {
             triggerRebuild(config);
         }
         if (m_daemonClient.isCooldownActive()) {
@@ -489,7 +492,8 @@ void CacheTab::render(FizzConfig& config) {
 
     float availW = ImGui::GetContentRegionAvail().x;
     float btnApplyW = 85.0f;
-    float btnResetW = 100.0f;
+    const char* resetLabel = fizz::ui::getCacheResetDefaultButtonLabel();
+    float btnResetW = std::max(100.0f, ImGui::CalcTextSize(resetLabel, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f);
     float buttonsW = btnApplyW + btnResetW;
     float inputW = std::max(150.0f, availW - buttonsW - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 
@@ -501,7 +505,7 @@ void CacheTab::render(FizzConfig& config) {
     ImGui::SameLine();
     bool applyClicked = ImGui::Button("Apply##cache", {btnApplyW, 0});
     ImGui::SameLine();
-    bool resetClicked = ImGui::Button("Reset Default##cache", {btnResetW, 0});
+    bool resetClicked = ImGui::Button(resetLabel, {btnResetW, 0});
 
     if (enterPressed || applyClicked) {
         std::string errMsg;

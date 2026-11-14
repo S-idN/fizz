@@ -6,8 +6,32 @@
 #include "imgui.h"
 #include "FileSearch.h"
 #include "Theme.h"
+#include "IconsFontAwesome7.h"
 
 namespace fizz::ui {
+
+// Controls whether icon font is treated as unavailable for unit test simulation
+void setIconFontSuppressedForTesting(bool suppressed);
+bool isIconFontSuppressedForTesting();
+
+// Returns true if Font Awesome glyphs were merged into the active font and icons are not suppressed
+bool isIconFontAvailable();
+
+// Label helper functions for Settings tabs with clean text degradation
+const char* getGeneralTabLabel();
+const char* getAppearanceTabLabel();
+const char* getIndexingTabLabel();
+const char* getCacheTabLabel();
+
+// Return navigation button label with clean text degradation
+const char* getViewHeaderReturnLabel();
+
+// Action button labels with clean text degradation
+const char* getRebuildCacheButtonLabel();
+const char* getResetDefaultsButtonLabel();
+const char* getCacheResetDefaultButtonLabel();
+const char* getAddRootButtonLabel();
+const char* getBrowseRootButtonLabel();
 
 // Category badge representation with high-contrast palette color
 struct CategoryBadge {
@@ -19,7 +43,7 @@ struct CategoryBadge {
 constexpr std::string_view kDefaultPlaceholderText = "Search files and apps...";
 
 // Default back button navigation label for Settings and About view headers
-constexpr std::string_view kBackToSearchLabel = "← Back to Search";
+constexpr std::string_view kBackToSearchLabel = "Esc";
 
 // Layout and sizing metrics for modern UI components
 struct Metrics {
@@ -112,13 +136,15 @@ ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
                                              std::string_view title, MeasureFn&& measureFn,
                                              float headerHeight = Metrics::kHeaderHeight,
                                              float fontSize = 16.0f,
-                                             std::string_view backLabel = kBackToSearchLabel) {
+                                             std::string_view backLabel = "") {
     float hHeight = std::max(0.0f, headerHeight);
     float w = std::max(0.0f, width);
     ImVec2 headerMin = origin;
     ImVec2 headerMax = {origin.x + w, origin.y + hHeight};
 
-    float backTextW = measureFn(backLabel);
+    std::string_view effectiveBack = backLabel.empty() ? getViewHeaderReturnLabel() : backLabel;
+
+    float backTextW = measureFn(effectiveBack);
     float backBtnW = backTextW + 2.0f * Metrics::kBackBtnPaddingX;
     float backBtnH = fontSize + 2.0f * Metrics::kBackBtnPaddingY;
 
@@ -156,7 +182,7 @@ ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
                                              std::string_view title,
                                              float headerHeight = Metrics::kHeaderHeight,
                                              float fontSize = 16.0f,
-                                             std::string_view backLabel = kBackToSearchLabel);
+                                             std::string_view backLabel = "");
 
 // Calculates geometry for the integrated search pill container, prompt, and input box
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize = 16.0f);
@@ -352,8 +378,8 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder = 
 // Renders the pinned status footer at window bottom with search hit count and keyboard shortcuts
 void renderStatusFooter(int hitCount, std::string_view warningMsg = "");
 
-// Renders the in-app view header with "← Back to Search" button and view title
-// Returns true when the "← Back to Search" button is clicked
-bool renderViewHeader(std::string_view title, std::string_view backLabel = kBackToSearchLabel);
+// Renders the in-app view header with return button and view title
+// Returns true when the return button is clicked
+bool renderViewHeader(std::string_view title, std::string_view backLabel = "");
 
 } // namespace fizz::ui

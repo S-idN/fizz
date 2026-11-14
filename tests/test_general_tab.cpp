@@ -7,7 +7,11 @@
 #include <fstream>
 #include "services/GeneralTab.h"
 #include "services/Config.h"
+#include "services/SearchUi.h"
+#include "services/AppearanceTab.h"
+#include "IconsFontAwesome7.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 
 namespace fs = std::filesystem;
 
@@ -411,7 +415,62 @@ void test_general_tab_headless_ui_rendering() {
     std::cout << "[PASS] test_general_tab_headless_ui_rendering passed.\n";
 }
 
+void test_general_tab_action_buttons_and_degradation() {
+    std::cout << "[TEST] Running test_general_tab_action_buttons_and_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    GENERAL_TEST_ASSERT(rebuilt);
+    GENERAL_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    FizzConfig cfg = FizzConfig::defaults();
+    GeneralTab tab;
+
+    // 1. Icon-enabled mode
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    GENERAL_TEST_ASSERT(std::string(fizz::ui::getResetDefaultsButtonLabel()) == ICON_FA_ROTATE_LEFT " Reset to Factory Defaults##btn_reset_defaults");
+    GENERAL_TEST_ASSERT(std::string(fizz::ui::getGeneralTabLabel()) == ICON_FA_SLIDERS " General");
+
+    ImGui::NewFrame();
+    ImGui::Begin("General_Icon_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(cfg);
+    ImGuiContext& g = *GImGui;
+    std::string loggedIcon = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    GENERAL_TEST_ASSERT(loggedIcon.find(ICON_FA_ROTATE_LEFT) != std::string::npos);
+
+    // 2. Icon-suppressed mode (clean text degradation)
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    GENERAL_TEST_ASSERT(std::string(fizz::ui::getResetDefaultsButtonLabel()) == "Reset to Factory Defaults##btn_reset_defaults");
+    GENERAL_TEST_ASSERT(std::string(fizz::ui::getGeneralTabLabel()) == "General");
+
+    ImGui::NewFrame();
+    ImGui::Begin("General_Degraded_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(cfg);
+    std::string loggedDegraded = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    GENERAL_TEST_ASSERT(loggedDegraded.find("Reset to Factory Defaults") != std::string::npos);
+    GENERAL_TEST_ASSERT(loggedDegraded.find(ICON_FA_ROTATE_LEFT) == std::string::npos);
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_general_tab_action_buttons_and_degradation passed.\n";
+}
+
 void run_general_tab_tests() {
+    test_general_tab_action_buttons_and_degradation();
     test_general_tab_auto_close_mutation();
     test_general_tab_grace_period_clamping_and_live_mutation();
     test_general_tab_grace_period_debounce();

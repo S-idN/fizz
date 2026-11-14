@@ -1,6 +1,7 @@
 #include "IndexingTab.h"
 #include "Theme.h"
 #include "FileSearch.h"
+#include "SearchUi.h"
 
 #include <cctype>
 #include <algorithm>
@@ -361,7 +362,7 @@ void IndexingTab::render(FizzConfig& config, const std::string& configPath, cons
 }
 
 bool IndexingTab::renderTabItem(FizzConfig& config, const std::string& configPath, const std::string& customHome) {
-    if (ImGui::BeginTabItem("Indexing")) {
+    if (ImGui::BeginTabItem(fizz::ui::getIndexingTabLabel())) {
         render(config, configPath, customHome);
         ImGui::EndTabItem();
         return true;
@@ -620,15 +621,41 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     ImGui::SameLine();
     ImGui::TextDisabled("— directories scanned for files and applications");
 
-    // Input line
-    float addBtnW = 85.0f;
-    float inputW = std::max(100.0f, availW - addBtnW - ImGui::GetStyle().ItemSpacing.x);
+    // Input line with Browse and Add Root buttons
+    const char* browseLabel = fizz::ui::getBrowseRootButtonLabel();
+    float browseBtnW = std::max(75.0f, ImGui::CalcTextSize(browseLabel, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f);
+    const char* addLabel = fizz::ui::getAddRootButtonLabel();
+    float addBtnW = std::max(85.0f, ImGui::CalcTextSize(addLabel, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f);
+
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float buttonsTotalW = browseBtnW + spacing + addBtnW;
+    float inputW = std::max(100.0f, availW - buttonsTotalW - spacing);
     ImGui::SetNextItemWidth(inputW);
     bool rootEnter = ImGui::InputTextWithHint("##new_root_input", "Enter directory path (e.g. ~/Projects)...",
                                               state.newRootBuffer, sizeof(state.newRootBuffer),
                                               ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
-    bool rootAddClicked = ImGui::Button("Add Root##btn_add_root", ImVec2(addBtnW, 0));
+    bool browseClicked = ImGui::Button(browseLabel, ImVec2(browseBtnW, 0));
+    ImGui::SameLine();
+    bool rootAddClicked = ImGui::Button(addLabel, ImVec2(addBtnW, 0));
+
+    if (browseClicked) {
+        FILE* fp = popen("zenity --file-selection --directory 2>/dev/null", "r");
+        if (fp) {
+            char pathBuf[1024];
+            if (fgets(pathBuf, sizeof(pathBuf), fp)) {
+                size_t len = strlen(pathBuf);
+                while (len > 0 && (pathBuf[len - 1] == '\n' || pathBuf[len - 1] == '\r')) {
+                    pathBuf[--len] = '\0';
+                }
+                if (len > 0 && len < sizeof(state.newRootBuffer)) {
+                    strncpy(state.newRootBuffer, pathBuf, sizeof(state.newRootBuffer) - 1);
+                    state.newRootBuffer[sizeof(state.newRootBuffer) - 1] = '\0';
+                }
+            }
+            pclose(fp);
+        }
+    }
     if (rootEnter || rootAddClicked) {
         std::string normalized = normalizeSearchRoot(state.newRootBuffer);
         if (normalized == "/") {

@@ -10,7 +10,11 @@
 #include "services/CacheTab.h"
 #include "services/Config.h"
 #include "services/FileSearch.h"
+#include "services/SearchUi.h"
+#include "services/AppearanceTab.h"
+#include "IconsFontAwesome7.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 
 namespace fs = std::filesystem;
 
@@ -459,8 +463,68 @@ static void test_cache_tab_async_rebuild_and_diagnostics_refresh() {
     std::cout << "[PASS] test_cache_tab_async_rebuild_and_diagnostics_refresh passed.\n";
 }
 
+static void test_cache_tab_action_buttons_and_degradation() {
+    std::cout << "[TEST] Running test_cache_tab_action_buttons_and_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    CACHE_TEST_ASSERT(rebuilt);
+    CACHE_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::CacheTab tab(config);
+
+    // 1. Icon-enabled mode
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getRebuildCacheButtonLabel()) == ICON_FA_ARROWS_ROTATE " Rebuild Cache##action");
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getCacheResetDefaultButtonLabel()) == ICON_FA_ROTATE_LEFT " Reset Default##cache");
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getCacheTabLabel()) == ICON_FA_HARD_DRIVE " Cache");
+
+    ImGui::NewFrame();
+    ImGui::Begin("Cache_Icon_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(config);
+    ImGuiContext& g = *GImGui;
+    std::string loggedIcon = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    CACHE_TEST_ASSERT(loggedIcon.find(ICON_FA_ARROWS_ROTATE) != std::string::npos);
+    CACHE_TEST_ASSERT(loggedIcon.find(ICON_FA_ROTATE_LEFT) != std::string::npos);
+
+    // 2. Icon-suppressed mode (clean text degradation)
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getRebuildCacheButtonLabel()) == "Rebuild Cache##action");
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getCacheResetDefaultButtonLabel()) == "Reset Default##cache");
+    CACHE_TEST_ASSERT(std::string(fizz::ui::getCacheTabLabel()) == "Cache");
+
+    ImGui::NewFrame();
+    ImGui::Begin("Cache_Degraded_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToBuffer();
+    tab.render(config);
+    std::string loggedDegraded = g.LogBuffer.c_str();
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    CACHE_TEST_ASSERT(loggedDegraded.find("Rebuild Cache") != std::string::npos);
+    CACHE_TEST_ASSERT(loggedDegraded.find("Reset Default") != std::string::npos);
+    CACHE_TEST_ASSERT(loggedDegraded.find(ICON_FA_ARROWS_ROTATE) == std::string::npos);
+    CACHE_TEST_ASSERT(loggedDegraded.find(ICON_FA_ROTATE_LEFT) == std::string::npos);
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_cache_tab_action_buttons_and_degradation passed.\n";
+}
+
 void run_cache_tab_tests() {
     std::cout << "--- Running CacheTab Unit Tests ---\n";
+    test_cache_tab_action_buttons_and_degradation();
     test_file_size_formatting();
     test_timestamp_formatting();
     test_cache_diagnostics_calculation();
