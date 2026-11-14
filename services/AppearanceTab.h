@@ -152,6 +152,32 @@ struct AppearanceCallbacks {
 // Global / default callback setters
 void setWindowResizeCallback(std::function<void(int width, int height)> cb);
 void setFontRebuildCallback(std::function<void(const std::string& fontPath, float fontSize)> cb);
+void setGpuTextureReloadCallback(std::function<void()> cb);
+
+// Font rebuild request queued for execution at a frame boundary
+struct FontRebuildRequest {
+    std::string fontPath;
+    float fontSize = 0.0f;
+};
+
+// Queues a deferred font atlas rebuild request to be executed cleanly at the frame boundary
+// (outside active Dear ImGui draw lists / between rendering and NewFrame).
+void queueFontRebuild(const std::string& fontPath, float fontSize);
+
+// Returns true if there is a pending deferred font atlas rebuild request.
+bool hasPendingFontRebuild();
+
+// Returns the pending font rebuild request.
+const FontRebuildRequest& getPendingFontRebuild();
+
+// Clears any pending font rebuild request without executing it.
+void clearPendingFontRebuild();
+
+// Executes any pending deferred font rebuild cleanly at the frame boundary:
+// Clears and bakes the Dear ImGui font atlas, reloads GPU textures via onGpuTextureReload,
+// and resets the pending rebuild state. Returns true if a rebuild was executed.
+bool executePendingFontRebuild(const std::function<void()>& onGpuTextureReload = nullptr,
+                               ImFontAtlas* atlas = nullptr);
 
 // Returns list of available themes
 const std::vector<ThemeOption>& getAvailableThemes();

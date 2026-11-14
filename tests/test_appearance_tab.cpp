@@ -1506,6 +1506,159 @@ void test_appearance_tab_relaxed_layout_metrics() {
     std::cout << "[PASS] test_appearance_tab_relaxed_layout_metrics passed.\n";
 }
 
+void test_appearance_deferred_font_rebuild_and_integer_slider() {
+    std::cout << "[TEST] Running test_appearance_deferred_font_rebuild_and_integer_slider...\n";
+
+    // 1. Queue operations and API contracts
+    fizz::ui::clearPendingFontRebuild();
+    APPEARANCE_TEST_ASSERT(!fizz::ui::hasPendingFontRebuild());
+
+    fizz::ui::queueFontRebuild("/usr/share/fonts/test.ttf", 20.0f);
+    APPEARANCE_TEST_ASSERT(fizz::ui::hasPendingFontRebuild());
+    APPEARANCE_TEST_ASSERT(fizz::ui::getPendingFontRebuild().fontPath == "/usr/share/fonts/test.ttf");
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 20.0f));
+
+    // Clamping to bounds [10..32]
+    fizz::ui::queueFontRebuild("", 5.0f);
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 10.0f));
+
+    fizz::ui::queueFontRebuild("", 50.0f);
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 32.0f));
+
+    fizz::ui::clearPendingFontRebuild();
+    APPEARANCE_TEST_ASSERT(!fizz::ui::hasPendingFontRebuild());
+
+    // 2. Headless UI formatting and discrete integer increments
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+    config.font_size = 16.0f;
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    // Frame 1: render tab, capture formatting
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_deferred_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config);
+    ImGui::LogFinish();
+
+    std::string capturedUi;
+    if (const char* clip = ImGui::GetClipboardText()) {
+        capturedUi = clip;
+    }
+
+    // Verify format displays whole-number point values ("16 px") and not fractional ("16.0 px")
+    APPEARANCE_TEST_ASSERT(capturedUi.find("16 px") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUi.find("16.0 px") == std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // 3. Mid-frame safety and rapid slider adjustments without draw list invalidation
+    fizz::ui::clearPendingFontRebuild();
+    int gpuReloadCount = 0;
+    auto mockGpuReload = [&]() {
+        gpuReloadCount++;
+    };
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_deferred_midframe", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    // Rapid slider adjustments within a single frame
+    fizz::ui::setFontSize(config, 17.0f);
+    APPEARANCE_TEST_ASSERT(fizz::ui::hasPendingFontRebuild());
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 17.0f));
+
+    fizz::ui::setFontSize(config, 18.0f);
+    APPEARANCE_TEST_ASSERT(fizz::ui::hasPendingFontRebuild());
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 18.0f));
+
+    fizz::ui::setFontSize(config, 24.0f);
+    APPEARANCE_TEST_ASSERT(fizz::ui::hasPendingFontRebuild());
+    APPEARANCE_TEST_ASSERT(nearEqual(fizz::ui::getPendingFontRebuild().fontSize, 24.0f));
+
+    // Verify active draw lists are still completely valid and not invalidated mid-frame
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    APPEARANCE_TEST_ASSERT(dl != nullptr);
+    dl->AddRectFilled(ImVec2(10, 10), ImVec2(50, 50), IM_COL32(255, 0, 0, 255));
+    ImGui::Text("Active draw list text during queued font rebuild");
+
+    // Rendering frame completes without asserts or segfaults
+    ImGui::End();
+    ImGui::Render();
+
+    ImDrawData* drawData = ImGui::GetDrawData();
+    APPEARANCE_TEST_ASSERT(drawData != nullptr);
+    APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
+    // Texture reload must NOT have happened mid-frame
+    APPEARANCE_TEST_ASSERT(gpuReloadCount == 0);
+
+    // Execute at frame boundary
+    bool rebuilt = fizz::ui::executePendingFontRebuild(mockGpuReload);
+    APPEARANCE_TEST_ASSERT(rebuilt);
+    APPEARANCE_TEST_ASSERT(!fizz::ui::hasPendingFontRebuild());
+    APPEARANCE_TEST_ASSERT(gpuReloadCount == 1);
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetIO().FontDefault ? ImGui::GetIO().FontDefault->LegacySize : 24.0f, 24.0f));
+
+    // Redundant execute returns false
+    APPEARANCE_TEST_ASSERT(!fizz::ui::executePendingFontRebuild(mockGpuReload));
+    APPEARANCE_TEST_ASSERT(gpuReloadCount == 1);
+
+    // 4. Consecutive frame loop simulating rapid dragging and boundary rebuilds
+    for (int frame = 0; frame < 10; ++frame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("test_loop_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+        float nextSize = static_cast<float>(14 + frame);
+        fizz::ui::setFontSize(config, nextSize);
+        APPEARANCE_TEST_ASSERT(fizz::ui::hasPendingFontRebuild());
+
+        ImGui::Text("Frame %d with font size %.0f", frame, nextSize);
+        ImGui::End();
+        ImGui::Render();
+
+        // At frame boundary outside active draw lists
+        bool ok = fizz::ui::executePendingFontRebuild(mockGpuReload);
+        APPEARANCE_TEST_ASSERT(ok);
+        APPEARANCE_TEST_ASSERT(gpuReloadCount == 2 + frame);
+    }
+
+    ImGui::DestroyContext(ctx);
+
+    // 5. Source code verification:
+    // Verify AppearanceTab.cpp uses "%.0f px" slider formatting
+    fs::path tabPath = fs::path(__FILE__).parent_path().parent_path() / "services" / "AppearanceTab.cpp";
+    if (fs::exists(tabPath)) {
+        std::ifstream in(tabPath);
+        std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        APPEARANCE_TEST_ASSERT(src.find("\"%.0f px\"") != std::string::npos);
+        APPEARANCE_TEST_ASSERT(src.find("\"%.1f px\"") == std::string::npos);
+    }
+
+    // Verify main_gui.cpp uses executePendingFontRebuild or deferred rebuild mechanism
+    fs::path mainGuiPath = fs::path(__FILE__).parent_path().parent_path() / "main_gui.cpp";
+    if (fs::exists(mainGuiPath)) {
+        std::ifstream in(mainGuiPath);
+        std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        APPEARANCE_TEST_ASSERT(src.find("executePendingFontRebuild") != std::string::npos);
+    }
+
+    std::cout << "[PASS] test_appearance_deferred_font_rebuild_and_integer_slider passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -1525,4 +1678,5 @@ void run_appearance_tab_tests() {
     test_settings_tab_order_and_clean_footer();
     test_appearance_font_selection_via_combo_box_and_no_custom_input();
     test_appearance_horizontal_accent_swatches();
+    test_appearance_deferred_font_rebuild_and_integer_slider();
 }
