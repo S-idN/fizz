@@ -505,23 +505,14 @@ void test_appearance_system_font_discovery() {
     auto fonts = getDiscoveredSystemFonts();
     APPEARANCE_TEST_ASSERT(!fonts.empty());
 
-    // First entry must be System Default
-    APPEARANCE_TEST_ASSERT(fonts[0].familyName.find("Default") != std::string::npos);
-    APPEARANCE_TEST_ASSERT(fonts[0].path.empty());
+    // First entry must be Space Grotesk (Bundled Default)
+    APPEARANCE_TEST_ASSERT(fonts[0].familyName == "Space Grotesk (Bundled Default)");
     APPEARANCE_TEST_ASSERT(fonts[0].available);
+    APPEARANCE_TEST_ASSERT(!fonts[0].path.empty());
+    APPEARANCE_TEST_ASSERT(access(fonts[0].path.c_str(), R_OK) == 0);
 
-    // Check known font families exist in the returned cascade list
-    auto hasFamily = [&](const std::string& name) {
-        return std::any_of(fonts.begin(), fonts.end(), [&](const DiscoveredFont& f) {
-            return f.familyName.find(name) != std::string::npos;
-        });
-    };
-
-    APPEARANCE_TEST_ASSERT(hasFamily("Adwaita"));
-    APPEARANCE_TEST_ASSERT(hasFamily("Cantarell"));
-    APPEARANCE_TEST_ASSERT(hasFamily("Google Sans"));
-    APPEARANCE_TEST_ASSERT(hasFamily("DejaVu"));
-    APPEARANCE_TEST_ASSERT(hasFamily("JetBrains"));
+    // Fontconfig discovered fonts are enumerated
+    APPEARANCE_TEST_ASSERT(fonts.size() > 1);
 
     // For any font that is marked available and has a non-empty path, verify readability
     for (const auto& f : fonts) {

@@ -14,31 +14,6 @@
 
 namespace fizz::ui {
 
-static std::string resolveAssetFile(const std::string& relativePath) {
-    if (access(relativePath.c_str(), R_OK) == 0) {
-        return relativePath;
-    }
-    std::string parentRelative = "../" + relativePath;
-    if (access(parentRelative.c_str(), R_OK) == 0) {
-        return parentRelative;
-    }
-    char exePath[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-    if (len > 0) {
-        exePath[len] = '\0';
-        std::filesystem::path dir = std::filesystem::path(exePath).parent_path();
-        std::filesystem::path candidate = dir / relativePath;
-        if (access(candidate.c_str(), R_OK) == 0) {
-            return candidate.string();
-        }
-        candidate = dir.parent_path() / relativePath;
-        if (access(candidate.c_str(), R_OK) == 0) {
-            return candidate.string();
-        }
-    }
-    return "";
-}
-
 static std::function<void(int, int)> s_globalWindowResizeCallback = nullptr;
 static std::function<void(const std::string&, float)> s_globalFontRebuildCallback = nullptr;
 
@@ -451,7 +426,7 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     const auto systemFonts = getDiscoveredSystemFonts();
     std::string currentFontLabel = "Custom Font";
     if (config.font_path.empty()) {
-        currentFontLabel = "System Default (Auto-detect)";
+        currentFontLabel = !systemFonts.empty() ? systemFonts[0].familyName : "Space Grotesk (Bundled Default)";
     } else {
         for (const auto& sf : systemFonts) {
             if (sf.path == config.font_path) {
@@ -464,7 +439,8 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     ImGui::SetNextItemWidth(300.0f);
     if (ImGui::BeginCombo("Font Family##font_family", currentFontLabel.c_str())) {
         for (const auto& sf : systemFonts) {
-            bool isSelected = (config.font_path == sf.path);
+            bool isSelected = (config.font_path == sf.path) ||
+                              (config.font_path.empty() && !systemFonts.empty() && sf.path == systemFonts[0].path);
             std::string itemLabel = sf.familyName;
             if (!sf.available && !sf.path.empty()) {
                 itemLabel += " (not found)";
