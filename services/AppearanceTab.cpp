@@ -508,20 +508,6 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
 
     ImGui::Spacing();
     ImGui::TextDisabled("Select standard system fonts or configure custom TTF/OTF path. Dynamically rebuilds font atlas.");
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // 5. Status / Summary
-    ImGui::Text("Current Theme: %s", (config.theme == "light" ? "Light" : "Dark"));
-    ImGui::SameLine(180.0f);
-    ImGui::Text("Current Accent: %s", config.accent.c_str());
-    ImGui::Text("Window Size: %d x %d px", config.window_width, config.window_height);
-    ImGui::SameLine(240.0f);
-    std::string fontDisplay = config.font_path.empty() ? "System Default" : config.font_path;
-    ImGui::Text("Font: %s (%.1f px)", fontDisplay.c_str(), config.font_size);
-    ImGui::Spacing();
-    ImGui::TextDisabled("Changes apply live without restart and automatically persist to fizz.conf.");
 
     return modified;
 }
