@@ -1,6 +1,12 @@
 #include "FontDiscovery.h"
 #include <filesystem>
 #include <unistd.h>
+#include <climits>
+#include <cstring>
+#include <strings.h>
+#include <algorithm>
+#include <unordered_set>
+#include <fontconfig/fontconfig.h>
 
 namespace fs = std::filesystem;
 
@@ -33,6 +39,37 @@ static const std::vector<std::string> kRelativeCandidates = {
     "usr/share/fonts/TTF/JetBrainsMono-Regular.ttf",
     "usr/share/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
 };
+
+std::string resolveAssetFile(const std::string& relativePath, const std::string& customRoot) {
+    if (!customRoot.empty()) {
+        fs::path p = fs::path(customRoot) / relativePath;
+        if (access(p.c_str(), R_OK) == 0) {
+            return p.lexically_normal().string();
+        }
+    }
+    if (access(relativePath.c_str(), R_OK) == 0) {
+        return fs::path(relativePath).lexically_normal().string();
+    }
+    std::string parentRelative = "../" + relativePath;
+    if (access(parentRelative.c_str(), R_OK) == 0) {
+        return fs::path(parentRelative).lexically_normal().string();
+    }
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len > 0) {
+        exePath[len] = '\0';
+        fs::path dir = fs::path(exePath).parent_path();
+        fs::path candidate = dir / relativePath;
+        if (access(candidate.c_str(), R_OK) == 0) {
+            return candidate.lexically_normal().string();
+        }
+        candidate = dir.parent_path() / relativePath;
+        if (access(candidate.c_str(), R_OK) == 0) {
+            return candidate.lexically_normal().string();
+        }
+    }
+    return "";
+}
 
 std::vector<std::string> getDefaultFontCandidates(const std::string& sysRoot) {
     std::vector<std::string> result;
@@ -98,30 +135,91 @@ static const FontGroup kFontGroups[] = {
 
 std::vector<DiscoveredFont> getDiscoveredSystemFonts(const std::string& sysRoot) {
     std::vector<DiscoveredFont> result;
-    result.reserve(1 + sizeof(kFontGroups) / sizeof(kFontGroups[0]));
 
-    // 1. System Default option
-    result.push_back({"System Default (Auto-detect)", "", true});
+    // 1. Establish bundled Space Grotesk font at the top as default option
+    std::string bundledPath = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf", sysRoot);
+    DiscoveredFont bundled;
+    bundled.familyName = "Space Grotesk (Bundled Default)";
+    bundled.path = bundledPath;
+    bundled.available = !bundledPath.empty() && access(bundledPath.c_str(), R_OK) == 0;
+    result.push_back(std::move(bundled));
 
-    fs::path base = sysRoot.empty() ? fs::path("/") : fs::path(sysRoot);
+    std::vector<DiscoveredFont> systemFonts;
 
-    for (const auto& grp : kFontGroups) {
-        DiscoveredFont df;
-        df.familyName = grp.familyName;
-        df.available = false;
-        df.path = "";
+    if (sysRoot.empty()) {
+        // Query Fontconfig for scalable system fonts on the host system
+        FcConfig* fcConfig = FcInitLoadConfigAndFonts();
+        if (fcConfig) {
+            FcPattern* pat = FcPatternCreate();
+            if (pat) {
+                FcPatternAddBool(pat, FC_SCALABLE, FcTrue);
+                FcObjectSet* os = FcObjectSetBuild(FC_FAMILY, FC_FILE, nullptr);
+                if (os) {
+                    FcFontSet* fs = FcFontList(fcConfig, pat, os);
+                    if (fs) {
+                        std::unordered_set<std::string> seenFamilies;
+                        for (int i = 0; i < fs->nfont; ++i) {
+                            FcChar8* family = nullptr;
+                            FcChar8* file = nullptr;
+                            if (FcPatternGetString(fs->fonts[i], FC_FAMILY, 0, &family) == FcResultMatch && family &&
+                                FcPatternGetString(fs->fonts[i], FC_FILE, 0, &file) == FcResultMatch && file) {
+                                std::string fam = reinterpret_cast<const char*>(family);
+                                std::string filePath = reinterpret_cast<const char*>(file);
+                                if (fam.empty() || filePath.empty()) continue;
+                                if (access(filePath.c_str(), R_OK) != 0) continue;
 
-        for (const char* rel : grp.relativePaths) {
-            fs::path p = base / rel;
-            std::string normalized = p.lexically_normal().string();
-            if (access(normalized.c_str(), R_OK) == 0) {
-                df.path = normalized;
-                df.available = true;
-                break;
+                                std::string lowerFam = fam;
+                                std::transform(lowerFam.begin(), lowerFam.end(), lowerFam.begin(), [](unsigned char c) {
+                                    return std::tolower(c);
+                                });
+
+                                if (seenFamilies.insert(lowerFam).second) {
+                                    DiscoveredFont df;
+                                    df.familyName = fam;
+                                    df.path = filePath;
+                                    df.available = true;
+                                    systemFonts.push_back(std::move(df));
+                                }
+                            }
+                        }
+                        FcFontSetDestroy(fs);
+                    }
+                    FcObjectSetDestroy(os);
+                }
+                FcPatternDestroy(pat);
             }
+            FcConfigDestroy(fcConfig);
         }
-        result.push_back(std::move(df));
+
+        // Deduplicated font families sorted alphabetically (case-insensitive)
+        std::sort(systemFonts.begin(), systemFonts.end(), [](const DiscoveredFont& a, const DiscoveredFont& b) {
+            int cmp = strcasecmp(a.familyName.c_str(), b.familyName.c_str());
+            if (cmp != 0) return cmp < 0;
+            return a.familyName < b.familyName;
+        });
     }
 
+    // Fallback if Fontconfig yielded no fonts or when sysRoot is specified
+    if (systemFonts.empty()) {
+        fs::path base = sysRoot.empty() ? fs::path("/") : fs::path(sysRoot);
+        for (const auto& grp : kFontGroups) {
+            DiscoveredFont df;
+            df.familyName = grp.familyName;
+            df.available = false;
+            df.path = "";
+            for (const char* rel : grp.relativePaths) {
+                fs::path p = base / rel;
+                std::string normalized = p.lexically_normal().string();
+                if (access(normalized.c_str(), R_OK) == 0) {
+                    df.path = normalized;
+                    df.available = true;
+                    break;
+                }
+            }
+            systemFonts.push_back(std::move(df));
+        }
+    }
+
+    result.insert(result.end(), systemFonts.begin(), systemFonts.end());
     return result;
 }

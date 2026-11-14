@@ -12,6 +12,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 find_package(glfw3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
+find_package(Fontconfig REQUIRED)
 
 set(SERVICES_SOURCES
     services/AboutView.cpp
@@ -60,6 +61,7 @@ target_link_libraries(main_gui PRIVATE
     glfw
     OpenGL::GL
     Threads::Threads
+    Fontconfig::Fontconfig
 )
 
 target_compile_options(main_gui PRIVATE -O2)
@@ -130,7 +132,10 @@ target_include_directories(fizz_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/iconfontheaders
 )
 
-target_link_libraries(fizz_tests PRIVATE Threads::Threads)
+target_link_libraries(fizz_tests PRIVATE
+    Threads::Threads
+    Fontconfig::Fontconfig
+)
 
 enable_testing()
 add_test(NAME fizz_tests COMMAND fizz_tests)
