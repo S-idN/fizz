@@ -215,30 +215,32 @@ bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
         font = atlas->AddFontDefault();
     }
 
-    // Merge Font Awesome 7 Solid and Brands icon fonts into base font
-    ImFontConfig iconConfig;
-    iconConfig.MergeMode = true;
-    iconConfig.PixelSnapH = true;
-    iconConfig.GlyphMinAdvanceX = clampedSize;
+    if ((font->Flags & ImFontFlags_ImplicitRefSize) == 0) {
+        // Merge Font Awesome 7 Solid and Brands icon fonts into base font
+        ImFontConfig iconConfig;
+        iconConfig.MergeMode = true;
+        iconConfig.PixelSnapH = true;
+        iconConfig.GlyphMinAdvanceX = clampedSize;
 
-    static const ImWchar icons_fa_ranges[] = {
-        ICON_MIN_FA,
-        ICON_MAX_FA,
-        0
-    };
-    std::string solidIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Free-Solid-900.otf");
-    if (!solidIconPath.empty() && access(solidIconPath.c_str(), R_OK) == 0) {
-        atlas->AddFontFromFileTTF(solidIconPath.c_str(), clampedSize, &iconConfig, icons_fa_ranges);
-    }
+        static const ImWchar icons_fa_ranges[] = {
+            ICON_MIN_FA,
+            ICON_MAX_FA,
+            0
+        };
+        std::string solidIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Free-Solid-900.otf");
+        if (!solidIconPath.empty() && access(solidIconPath.c_str(), R_OK) == 0) {
+            atlas->AddFontFromFileTTF(solidIconPath.c_str(), clampedSize, &iconConfig, icons_fa_ranges);
+        }
 
-    static const ImWchar icons_fab_ranges[] = {
-        ICON_MIN_FAB,
-        ICON_MAX_FAB,
-        0
-    };
-    std::string brandIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Brands-Regular-400.otf");
-    if (!brandIconPath.empty() && access(brandIconPath.c_str(), R_OK) == 0) {
-        atlas->AddFontFromFileTTF(brandIconPath.c_str(), clampedSize, &iconConfig, icons_fab_ranges);
+        static const ImWchar icons_fab_ranges[] = {
+            ICON_MIN_FAB,
+            ICON_MAX_FAB,
+            0
+        };
+        std::string brandIconPath = resolveAssetFile("assets/icons/Font Awesome 7 Brands-Regular-400.otf");
+        if (!brandIconPath.empty() && access(brandIconPath.c_str(), R_OK) == 0) {
+            atlas->AddFontFromFileTTF(brandIconPath.c_str(), clampedSize, &iconConfig, icons_fab_ranges);
+        }
     }
 
     atlas->Build();

@@ -4,6 +4,8 @@
 
 #include <cctype>
 #include <algorithm>
+#include <set>
+#include <filesystem>
 
 namespace fizz {
 
@@ -187,6 +189,91 @@ std::string normalizeIgnoreRule(std::string_view rawRule) {
     return rule;
 }
 
+static std::string canonicalizeRoot(std::string_view rawPath, const std::string& customHome) {
+    std::string s = normalizeSearchRoot(rawPath, customHome);
+    if (s.empty()) return "";
+    std::filesystem::path p(s);
+    std::string norm = p.lexically_normal().string();
+    while (norm.size() > 1 && norm.back() == '/') {
+        norm.pop_back();
+    }
+    return norm;
+}
+
+static std::string canonicalizeRule(std::string_view rawRule) {
+    return normalizeIgnoreRule(rawRule);
+}
+
+std::string getCustomBadgeTooltipText() {
+    return "Custom Search Roots or Ignore Rules are currently active.";
+}
+
+std::optional<PresetType> detectMatchingPreset(const FizzConfig& config, const std::string& customHome) {
+    std::string home = !customHome.empty() ? customHome : getHomeDir();
+
+    // Canonicalize and deduplicate config search roots
+    std::set<std::string> cfgRoots;
+    for (const auto& r : config.searchRoots) {
+        std::string c = canonicalizeRoot(r, home);
+        if (!c.empty()) {
+            cfgRoots.insert(c);
+        }
+    }
+    // If config has duplicate or empty roots, it does not match clean preset definitions
+    if (cfgRoots.size() != config.searchRoots.size()) {
+        return std::nullopt;
+    }
+
+    // Canonicalize and deduplicate config ignore rules
+    std::set<std::string> cfgRules;
+    for (const auto& r : config.ignoreRules) {
+        std::string c = canonicalizeRule(r);
+        if (!c.empty()) {
+            cfgRules.insert(c);
+        }
+    }
+    if (cfgRules.size() != config.ignoreRules.size()) {
+        return std::nullopt;
+    }
+
+    const PresetType candidatePresets[] = {
+        PresetType::StandardDesktop,
+        PresetType::Minimalist,
+        PresetType::Developer,
+        PresetType::GodMode
+    };
+
+    for (PresetType type : candidatePresets) {
+        PresetProfile prof = getPresetProfile(type, home);
+
+        std::set<std::string> profRoots;
+        for (const auto& r : prof.searchRoots) {
+            std::string c = canonicalizeRoot(r, home);
+            if (!c.empty()) {
+                profRoots.insert(c);
+            }
+        }
+
+        std::set<std::string> profRules;
+        for (const auto& r : prof.ignoreRules) {
+            std::string c = canonicalizeRule(r);
+            if (!c.empty()) {
+                profRules.insert(c);
+            }
+        }
+
+        if (cfgRoots == profRoots && cfgRules == profRules) {
+            return type;
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<PresetType> detectActivePreset(const FizzConfig& config, const std::string& customHome) {
+    return detectMatchingPreset(config, customHome);
+}
+
 MutationResult addSearchRoot(FizzConfig& config, std::string_view rawPath,
                              const std::string& configPath,
                              const std::string& customHome) {
@@ -268,13 +355,14 @@ MutationResult removeIgnoreRule(FizzConfig& config, size_t index,
     return MutationResult::Success;
 }
 
-void IndexingTab::render(FizzConfig& config, const std::string& configPath) {
-    renderIndexingTab(m_state, config, configPath);
+void IndexingTab::render(FizzConfig& config, const std::string& configPath, const std::string& customHome) {
+    std::string home = !customHome.empty() ? customHome : m_state.customHome;
+    renderIndexingTab(m_state, config, configPath, home);
 }
 
-bool IndexingTab::renderTabItem(FizzConfig& config, const std::string& configPath) {
+bool IndexingTab::renderTabItem(FizzConfig& config, const std::string& configPath, const std::string& customHome) {
     if (ImGui::BeginTabItem("Indexing")) {
-        render(config, configPath);
+        render(config, configPath, customHome);
         ImGui::EndTabItem();
         return true;
     }
@@ -422,7 +510,11 @@ std::string IndexingTab::getGodModeWarningMessage(const FizzConfig& config) cons
            "Are you sure you want to enable God Mode?";
 }
 
-void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::string& configPath) {
+void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::string& configPath, const std::string& customHome) {
+    std::string home = !customHome.empty() ? customHome : state.customHome;
+    state.activePreset = detectMatchingPreset(config, home);
+    state.isCustomActive = !state.activePreset.has_value();
+
     ImGuiIO& io = ImGui::GetIO();
     float availW = ImGui::GetContentRegionAvail().x;
     float availH = ImGui::GetContentRegionAvail().y;
@@ -469,37 +561,51 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     // PRESET PROFILES BAR
     // ==========================================
     ImGui::TextColored(theme::Palette::kAccent, "Presets:");
-    ImGui::SameLine();
-    if (ImGui::Button("Minimalist##btn_preset_minimalist")) {
-        state.requestApplyPreset(PresetType::Minimalist);
-    }
-    state.presetButtonMin[0] = ImGui::GetItemRectMin();
-    state.presetButtonMax[0] = ImGui::GetItemRectMax();
-    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::Minimalist).c_str());
 
-    ImGui::SameLine();
-    if (ImGui::Button("Standard Desktop##btn_preset_standard")) {
-        state.requestApplyPreset(PresetType::StandardDesktop);
-    }
-    state.presetButtonMin[1] = ImGui::GetItemRectMin();
-    state.presetButtonMax[1] = ImGui::GetItemRectMax();
-    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::StandardDesktop).c_str());
+    auto renderPresetButton = [&](const char* label, PresetType type, int index) {
+        ImGui::SameLine();
+        bool isActive = (state.activePreset.has_value() && *state.activePreset == type);
+        if (isActive) {
+            ImVec4 accent = theme::getActiveAccent();
+            ImGui::PushStyleColor(ImGuiCol_Button, accent);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::withAlpha(accent, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::withAlpha(accent, 0.70f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        }
+        if (ImGui::Button(label)) {
+            state.requestApplyPreset(type);
+        }
+        state.presetButtonMin[index] = ImGui::GetItemRectMin();
+        state.presetButtonMax[index] = ImGui::GetItemRectMax();
+        ImGui::SetItemTooltip("%s", getPresetTooltipText(type, home).c_str());
+        if (isActive) {
+            ImGui::PopStyleColor(4);
+        }
+    };
 
-    ImGui::SameLine();
-    if (ImGui::Button("Developer##btn_preset_developer")) {
-        state.requestApplyPreset(PresetType::Developer);
-    }
-    state.presetButtonMin[2] = ImGui::GetItemRectMin();
-    state.presetButtonMax[2] = ImGui::GetItemRectMax();
-    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::Developer).c_str());
+    renderPresetButton("Minimalist##btn_preset_minimalist", PresetType::Minimalist, 0);
+    renderPresetButton("Standard Desktop##btn_preset_standard", PresetType::StandardDesktop, 1);
+    renderPresetButton("Developer##btn_preset_developer", PresetType::Developer, 2);
+    renderPresetButton("⚠️ God Mode##btn_preset_god_mode", PresetType::GodMode, 3);
 
-    ImGui::SameLine();
-    if (ImGui::Button("⚠️ God Mode##btn_preset_god_mode")) {
-        state.requestApplyPreset(PresetType::GodMode);
+    if (state.isCustomActive) {
+        ImGui::SameLine();
+        ImVec4 accent = theme::getActiveAccent();
+        ImGui::PushStyleColor(ImGuiCol_Button, accent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::withAlpha(accent, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::withAlpha(accent, 0.70f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+        ImGui::Button("[Custom]##btn_preset_custom");
+        state.customBadgeMin = ImGui::GetItemRectMin();
+        state.customBadgeMax = ImGui::GetItemRectMax();
+        ImGui::SetItemTooltip("%s", getCustomBadgeTooltipText().c_str());
+
+        ImGui::PopStyleColor(4);
+    } else {
+        state.customBadgeMin = ImVec2(0.0f, 0.0f);
+        state.customBadgeMax = ImVec2(0.0f, 0.0f);
     }
-    state.presetButtonMin[3] = ImGui::GetItemRectMin();
-    state.presetButtonMax[3] = ImGui::GetItemRectMax();
-    ImGui::SetItemTooltip("%s", getPresetTooltipText(PresetType::GodMode).c_str());
 
     ImGui::Spacing();
     ImGui::Separator();

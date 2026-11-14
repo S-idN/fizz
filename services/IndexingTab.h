@@ -35,6 +35,13 @@ struct PresetProfile {
 
 PresetProfile getPresetProfile(PresetType type, const std::string& customHome = "");
 std::string getPresetTooltipText(PresetType type, const std::string& customHome = "");
+std::string getCustomBadgeTooltipText();
+
+// Detects if the current Search Roots and Ignore Rules match any predefined Preset Profile.
+// Comparison is order-insensitive and canonicalizes search roots and ignore rules.
+// Returns std::nullopt if the configuration corresponds to a Custom profile.
+std::optional<PresetType> detectMatchingPreset(const FizzConfig& config, const std::string& customHome = "");
+std::optional<PresetType> detectActivePreset(const FizzConfig& config, const std::string& customHome = "");
 
 enum class MutationResult {
     Success,
@@ -90,6 +97,13 @@ struct IndexingTabState {
     ImVec2 presetButtonMin[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
     ImVec2 presetButtonMax[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
 
+    // Custom profile badge state and bounding box
+    std::string customHome = "";
+    std::optional<PresetType> activePreset = std::nullopt;
+    bool isCustomActive = false;
+    ImVec2 customBadgeMin = {0, 0};
+    ImVec2 customBadgeMax = {0, 0};
+
     void requestApplyPreset(PresetType type) {
         pendingPreset = type;
         if (type == PresetType::GodMode) {
@@ -125,8 +139,11 @@ public:
     IndexingTabState& getState() { return m_state; }
     const IndexingTabState& getState() const { return m_state; }
 
-    void render(FizzConfig& config, const std::string& configPath = "");
-    bool renderTabItem(FizzConfig& config, const std::string& configPath = "");
+    void setCustomHome(const std::string& home) { m_state.customHome = home; }
+    const std::string& getCustomHome() const { return m_state.customHome; }
+
+    void render(FizzConfig& config, const std::string& configPath = "", const std::string& customHome = "");
+    bool renderTabItem(FizzConfig& config, const std::string& configPath = "", const std::string& customHome = "");
 
     MutationResult submitNewRoot(FizzConfig& config, const std::string& configPath = "");
     MutationResult submitNewRule(FizzConfig& config, const std::string& configPath = "");
@@ -140,16 +157,21 @@ public:
     bool isPresetConfirmationOpen() const { return m_state.showPresetConfirmationModal; }
     bool isGodModeWarningOpen() const { return m_state.showGodModeWarningModal; }
     std::optional<PresetType> getPendingPreset() const { return m_state.pendingPreset; }
+    std::optional<PresetType> getActivePreset() const { return m_state.activePreset; }
+    bool isCustomProfileActive() const { return m_state.isCustomActive; }
     std::string getPresetConfirmationMessage(const FizzConfig& config) const;
     std::string getGodModeWarningMessage(const FizzConfig& config) const;
     std::string getPresetTooltip(PresetType type, const std::string& customHome = "") const {
         return getPresetTooltipText(type, customHome);
+    }
+    std::string getCustomBadgeTooltip() const {
+        return getCustomBadgeTooltipText();
     }
 
 private:
     IndexingTabState m_state;
 };
 
-void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::string& configPath = "");
+void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::string& configPath = "", const std::string& customHome = "");
 
 } // namespace fizz

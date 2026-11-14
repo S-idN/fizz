@@ -7,6 +7,7 @@
 #include <set>
 #include <algorithm>
 #include "services/IndexingTab.h"
+#include "services/Theme.h"
 #include "imgui_internal.h"
 
 #define INDEXING_TEST_ASSERT(cond) \
@@ -287,11 +288,6 @@ void test_headless_indexing_tab_rendering() {
     unsigned char* pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-
-    ImGui::NewFrame();
-    ImGui::SetNextWindowPos({0, 0});
-    ImGui::SetNextWindowSize(io.DisplaySize);
-    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
 
     fizz::IndexingTab tab;
 
@@ -852,6 +848,300 @@ void test_preset_tooltips_headless_hover() {
     std::cout << "[PASS] test_preset_tooltips_headless_hover passed.\n";
 }
 
+void test_detect_matching_preset() {
+    std::cout << "[TEST] Running test_detect_matching_preset...\n";
+    const std::string fakeHome = "/home/testuser";
+
+    // 1. Standard Desktop match
+    FizzConfig stdCfg;
+    auto stdProf = fizz::getPresetProfile(fizz::PresetType::StandardDesktop, fakeHome);
+    stdCfg.searchRoots = stdProf.searchRoots;
+    stdCfg.ignoreRules = stdProf.ignoreRules;
+    auto matchStd = fizz::detectMatchingPreset(stdCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchStd.has_value());
+    INDEXING_TEST_ASSERT(*matchStd == fizz::PresetType::StandardDesktop);
+
+    // 2. Minimalist match
+    FizzConfig minCfg;
+    auto minProf = fizz::getPresetProfile(fizz::PresetType::Minimalist, fakeHome);
+    minCfg.searchRoots = minProf.searchRoots;
+    minCfg.ignoreRules = minProf.ignoreRules;
+    auto matchMin = fizz::detectMatchingPreset(minCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchMin.has_value());
+    INDEXING_TEST_ASSERT(*matchMin == fizz::PresetType::Minimalist);
+
+    // 3. Developer match
+    FizzConfig devCfg;
+    auto devProf = fizz::getPresetProfile(fizz::PresetType::Developer, fakeHome);
+    devCfg.searchRoots = devProf.searchRoots;
+    devCfg.ignoreRules = devProf.ignoreRules;
+    auto matchDev = fizz::detectMatchingPreset(devCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchDev.has_value());
+    INDEXING_TEST_ASSERT(*matchDev == fizz::PresetType::Developer);
+
+    // 4. God Mode match
+    FizzConfig godCfg;
+    auto godProf = fizz::getPresetProfile(fizz::PresetType::GodMode, fakeHome);
+    godCfg.searchRoots = godProf.searchRoots;
+    godCfg.ignoreRules = godProf.ignoreRules;
+    auto matchGod = fizz::detectMatchingPreset(godCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchGod.has_value());
+    INDEXING_TEST_ASSERT(*matchGod == fizz::PresetType::GodMode);
+
+    // 5. Order insensitivity (search roots in reverse order)
+    FizzConfig revRootsCfg = stdCfg;
+    std::reverse(revRootsCfg.searchRoots.begin(), revRootsCfg.searchRoots.end());
+    auto matchRevRoots = fizz::detectMatchingPreset(revRootsCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchRevRoots.has_value());
+    INDEXING_TEST_ASSERT(*matchRevRoots == fizz::PresetType::StandardDesktop);
+
+    // 6. Order insensitivity (ignore rules shuffled)
+    FizzConfig revRulesCfg = devCfg;
+    std::reverse(revRulesCfg.ignoreRules.begin(), revRulesCfg.ignoreRules.end());
+    auto matchRevRules = fizz::detectMatchingPreset(revRulesCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchRevRules.has_value());
+    INDEXING_TEST_ASSERT(*matchRevRules == fizz::PresetType::Developer);
+
+    // 7. Path normalization equivalence (~, redundant slashes, trailing slashes)
+    FizzConfig tildeCfg;
+    tildeCfg.searchRoots = {"~/", "///usr/share/applications///"};
+    tildeCfg.ignoreRules = stdProf.ignoreRules;
+    auto matchTilde = fizz::detectMatchingPreset(tildeCfg, fakeHome);
+    INDEXING_TEST_ASSERT(matchTilde.has_value());
+    INDEXING_TEST_ASSERT(*matchTilde == fizz::PresetType::StandardDesktop);
+
+    // 8. Custom mutations away from presets return std::nullopt
+    // 8a. Extra search root added
+    FizzConfig extraRootCfg = stdCfg;
+    extraRootCfg.searchRoots.push_back("/opt/custom_tools");
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(extraRootCfg, fakeHome).has_value());
+
+    // 8b. Search root removed
+    FizzConfig missingRootCfg = stdCfg;
+    missingRootCfg.searchRoots.pop_back();
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(missingRootCfg, fakeHome).has_value());
+
+    // 8c. Extra ignore rule added
+    FizzConfig extraRuleCfg = minCfg;
+    extraRuleCfg.ignoreRules.push_back(".git");
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(extraRuleCfg, fakeHome).has_value());
+
+    // 8d. Ignore rule removed
+    FizzConfig missingRuleCfg = minCfg;
+    missingRuleCfg.ignoreRules.clear();
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(missingRuleCfg, fakeHome).has_value());
+
+    // 8e. God Mode with ignore rule added is custom
+    FizzConfig godWithIgnore = godCfg;
+    godWithIgnore.ignoreRules.push_back(".cache");
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(godWithIgnore, fakeHome).has_value());
+
+    // 8f. Empty configuration is custom
+    FizzConfig emptyCfg;
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(emptyCfg, fakeHome).has_value());
+
+    // 8g. Duplicate roots do not match
+    FizzConfig dupRootsCfg = stdCfg;
+    dupRootsCfg.searchRoots.push_back(stdCfg.searchRoots.front());
+    INDEXING_TEST_ASSERT(!fizz::detectMatchingPreset(dupRootsCfg, fakeHome).has_value());
+
+    std::cout << "[PASS] test_detect_matching_preset passed.\n";
+}
+
+void test_dynamic_preset_detection_and_custom_badge_rendering() {
+    std::cout << "[TEST] Running test_dynamic_preset_detection_and_custom_badge_rendering...\n";
+    fs::path testDir = fs::temp_directory_path() / ("fizz_test_indexing_custom_badge_" + std::to_string(getpid()));
+    std::error_code ec;
+    fs::remove_all(testDir, ec);
+    fs::create_directories(testDir, ec);
+    chmod(testDir.c_str(), 0700);
+
+    const std::string fakeHome = "/home/testuser";
+    std::string testConfigPath = (testDir / "fizz.conf").string();
+
+    FizzConfig config;
+    auto stdProf = fizz::getPresetProfile(fizz::PresetType::StandardDesktop, fakeHome);
+    config.searchRoots = stdProf.searchRoots;
+    config.ignoreRules = stdProf.ignoreRules;
+    INDEXING_TEST_ASSERT(saveConfig(config, testConfigPath));
+
+    fizz::IndexingTab tab;
+    tab.setCustomHome(fakeHome);
+
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    io.DisplaySize = ImVec2(800, 600);
+
+    auto hasAccentInBox = [](ImDrawData* drawData, ImVec2 bMin, ImVec2 bMax, ImU32 accentCol) -> bool {
+        if (!drawData) return false;
+        for (int i = 0; i < drawData->CmdListsCount; ++i) {
+            ImDrawList* dl = drawData->CmdLists[i];
+            for (int j = 0; j < dl->VtxBuffer.Size; ++j) {
+                const auto& vtx = dl->VtxBuffer[j];
+                if (vtx.pos.x >= bMin.x - 2.0f && vtx.pos.x <= bMax.x + 2.0f &&
+                    vtx.pos.y >= bMin.y - 2.0f && vtx.pos.y <= bMax.y + 2.0f) {
+                    if (vtx.col == accentCol) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    // ----------------------------------------------------
+    // FRAME 1: Standard Desktop matches
+    // ----------------------------------------------------
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(tab.getActivePreset().has_value());
+    INDEXING_TEST_ASSERT(*tab.getActivePreset() == fizz::PresetType::StandardDesktop);
+    INDEXING_TEST_ASSERT(!tab.isCustomProfileActive());
+
+    // [Custom] badge button must be completely hidden
+    std::string clipStr = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clipStr.find("[Custom]") == std::string::npos);
+    INDEXING_TEST_ASSERT(tab.getState().customBadgeMin.x == 0.0f && tab.getState().customBadgeMin.y == 0.0f);
+
+    ImU32 accentCol = ImGui::GetColorU32(fizz::theme::getActiveAccent());
+    ImDrawData* drawData = ImGui::GetDrawData();
+    // Preset buttons: 0: Minimalist, 1: StandardDesktop, 2: Developer, 3: GodMode
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[0], tab.getState().presetButtonMax[0], accentCol));
+    INDEXING_TEST_ASSERT(hasAccentInBox(drawData, tab.getState().presetButtonMin[1], tab.getState().presetButtonMax[1], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[2], tab.getState().presetButtonMax[2], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[3], tab.getState().presetButtonMax[3], accentCol));
+
+    // ----------------------------------------------------
+    // FRAME 2: Mutate config away from preset -> illuminates [Custom]
+    // ----------------------------------------------------
+    fizz::addSearchRoot(config, "/var/opt/custom_root", testConfigPath, fakeHome);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(!tab.getActivePreset().has_value());
+    INDEXING_TEST_ASSERT(tab.isCustomProfileActive());
+
+    // All preset buttons must return to neutral styling
+    drawData = ImGui::GetDrawData();
+    for (int p = 0; p < 4; ++p) {
+        INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[p], tab.getState().presetButtonMax[p], accentCol));
+    }
+
+    // [Custom] badge button is dynamically rendered in active accent color
+    clipStr = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clipStr.find("[Custom]") != std::string::npos);
+    ImVec2 badgeMin = tab.getState().customBadgeMin;
+    ImVec2 badgeMax = tab.getState().customBadgeMax;
+    INDEXING_TEST_ASSERT(badgeMax.x > badgeMin.x && badgeMax.y > badgeMin.y);
+    INDEXING_TEST_ASSERT(hasAccentInBox(drawData, badgeMin, badgeMax, accentCol));
+
+    // ----------------------------------------------------
+    // FRAME 3: Hovering over [Custom] shows tooltip
+    // ----------------------------------------------------
+    io.MousePos = ImVec2((badgeMin.x + badgeMax.x) * 0.5f, (badgeMin.y + badgeMax.y) * 0.5f);
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.HoverDelayShort = 0.0f;
+    style.HoverDelayNormal = 0.0f;
+    style.HoverFlagsForTooltipMouse = ImGuiHoveredFlags_None;
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::End();
+    ImGui::Render();
+
+    ImGuiWindow* tooltipWin = ImGui::FindWindowByName("##Tooltip_00");
+    INDEXING_TEST_ASSERT(tooltipWin != nullptr);
+    INDEXING_TEST_ASSERT(tooltipWin->Active);
+    INDEXING_TEST_ASSERT(tab.getCustomBadgeTooltip().find("Custom Search Roots or Ignore Rules are currently active") != std::string::npos);
+
+    // ----------------------------------------------------
+    // FRAME 4: Return configuration to Minimalist preset -> [Custom] hides
+    // ----------------------------------------------------
+    tab.requestApplyPreset(fizz::PresetType::Minimalist);
+    INDEXING_TEST_ASSERT(tab.confirmPresetApplication(config, testConfigPath, fakeHome));
+
+    io.MousePos = ImVec2(-100, -100); // move mouse away
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(tab.getActivePreset().has_value());
+    INDEXING_TEST_ASSERT(*tab.getActivePreset() == fizz::PresetType::Minimalist);
+    INDEXING_TEST_ASSERT(!tab.isCustomProfileActive());
+
+    // [Custom] badge button must be completely hidden
+    clipStr = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clipStr.find("[Custom]") == std::string::npos);
+    INDEXING_TEST_ASSERT(tab.getState().customBadgeMin.x == 0.0f && tab.getState().customBadgeMin.y == 0.0f);
+
+    drawData = ImGui::GetDrawData();
+    INDEXING_TEST_ASSERT(hasAccentInBox(drawData, tab.getState().presetButtonMin[0], tab.getState().presetButtonMax[0], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[1], tab.getState().presetButtonMax[1], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[2], tab.getState().presetButtonMax[2], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[3], tab.getState().presetButtonMax[3], accentCol));
+
+    // ----------------------------------------------------
+    // FRAME 5: God Mode preset matching
+    // ----------------------------------------------------
+    tab.requestApplyPreset(fizz::PresetType::GodMode);
+    INDEXING_TEST_ASSERT(tab.confirmPresetApplication(config, testConfigPath, fakeHome));
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    ImGui::LogToClipboard();
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::LogFinish();
+    ImGui::End();
+    ImGui::Render();
+
+    INDEXING_TEST_ASSERT(tab.getActivePreset().has_value());
+    INDEXING_TEST_ASSERT(*tab.getActivePreset() == fizz::PresetType::GodMode);
+    INDEXING_TEST_ASSERT(!tab.isCustomProfileActive());
+
+    clipStr = ImGui::GetClipboardText();
+    INDEXING_TEST_ASSERT(clipStr.find("[Custom]") == std::string::npos);
+
+    drawData = ImGui::GetDrawData();
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[0], tab.getState().presetButtonMax[0], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[1], tab.getState().presetButtonMax[1], accentCol));
+    INDEXING_TEST_ASSERT(!hasAccentInBox(drawData, tab.getState().presetButtonMin[2], tab.getState().presetButtonMax[2], accentCol));
+    INDEXING_TEST_ASSERT(hasAccentInBox(drawData, tab.getState().presetButtonMin[3], tab.getState().presetButtonMax[3], accentCol));
+
+    ImGui::DestroyContext(ctx);
+    fs::remove_all(testDir, ec);
+    std::cout << "[PASS] test_dynamic_preset_detection_and_custom_badge_rendering passed.\n";
+}
+
 void run_indexing_tab_tests() {
     test_normalize_search_root();
     test_normalize_ignore_rule();
@@ -867,4 +1157,6 @@ void run_indexing_tab_tests() {
     test_indexing_tab_state_and_actions();
     test_manual_god_mode_root_intercept();
     test_headless_indexing_tab_rendering();
+    test_detect_matching_preset();
+    test_dynamic_preset_detection_and_custom_badge_rendering();
 }
