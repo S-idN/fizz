@@ -135,9 +135,73 @@ void test_theme_indicator_geometry() {
     std::cout << "[PASS] test_theme_indicator_geometry passed.\n";
 }
 
+void test_theme_curated_accents_and_normalization() {
+    std::cout << "[TEST] Running test_theme_curated_accents_and_normalization...\n";
+
+    // 1. Verify exact RGB definitions for all 10 curated accents in fizz::theme::Accents
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kBlue,    {0.208f, 0.518f, 0.894f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kEmerald, {0.180f, 0.761f, 0.494f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kPurple,  {0.569f, 0.255f, 0.675f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kAmber,   {0.949f, 0.702f, 0.102f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kCrimson, {0.878f, 0.106f, 0.141f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kRose,    {0.957f, 0.247f, 0.369f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kIndigo,  {0.388f, 0.400f, 0.945f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kCyan,    {0.024f, 0.714f, 0.831f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kSunset,  {0.976f, 0.451f, 0.086f, 1.00f}));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::Accents::kLime,    {0.518f, 0.800f, 0.086f, 1.00f}));
+
+    // 2. Normalization: canonical IDs
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("blue") == "blue");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("emerald") == "emerald");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("purple") == "purple");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("amber") == "amber");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("crimson") == "crimson");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("rose") == "rose");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("indigo") == "indigo");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("cyan") == "cyan");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("sunset") == "sunset");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("lime") == "lime");
+
+    // 3. Normalization: common aliases and case-insensitivity
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("Adwaita Blue") == "blue");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("green") == "emerald");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("Emerald Green") == "emerald");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("red") == "crimson");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("coral") == "rose");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("Rose / Coral") == "rose");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("electric indigo") == "indigo");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("nord cyan") == "cyan");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("orange") == "sunset");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("Sunset Orange") == "sunset");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("neon lime") == "lime");
+    THEME_TEST_ASSERT(fizz::theme::normalizeAccent("unknown_accent") == "blue");
+
+    // 4. Color resolution via getAccentColor for all 10 canonical IDs and aliases
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("blue"), fizz::theme::Accents::kBlue));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("emerald"), fizz::theme::Accents::kEmerald));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("purple"), fizz::theme::Accents::kPurple));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("amber"), fizz::theme::Accents::kAmber));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("crimson"), fizz::theme::Accents::kCrimson));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("rose"), fizz::theme::Accents::kRose));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("coral"), fizz::theme::Accents::kRose));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("indigo"), fizz::theme::Accents::kIndigo));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("electric indigo"), fizz::theme::Accents::kIndigo));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("cyan"), fizz::theme::Accents::kCyan));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("nord cyan"), fizz::theme::Accents::kCyan));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset"), fizz::theme::Accents::kSunset));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("orange"), fizz::theme::Accents::kSunset));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset orange"), fizz::theme::Accents::kSunset));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("lime"), fizz::theme::Accents::kLime));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("neon lime"), fizz::theme::Accents::kLime));
+    THEME_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("invalid"), fizz::theme::Accents::kBlue));
+
+    std::cout << "[PASS] test_theme_curated_accents_and_normalization passed.\n";
+}
+
 void run_theme_tests() {
     test_theme_soft_rounding_metrics();
     test_theme_with_alpha();
     test_theme_adwaita_palette_colors();
     test_theme_indicator_geometry();
+    test_theme_curated_accents_and_normalization();
 }

@@ -526,6 +526,17 @@ void test_config_bounded_fields_and_enum_fallbacks() {
     CONFIG_TEST_ASSERT(invalidAccentCfg.accent == "blue");
     CONFIG_TEST_ASSERT(invalidAccentCfg.window_height == 500);
 
+    // 3b. Verify all 10 curated accents and aliases parse properly
+    for (const auto& accName : {"rose", "indigo", "cyan", "sunset", "lime", "coral", "orange"}) {
+        fs::path newAccFile = tempDir / (std::string(accName) + ".conf");
+        {
+            std::ofstream out(newAccFile);
+            out << "accent = " << accName << "\n";
+        }
+        FizzConfig accCfg = loadConfig(newAccFile.string());
+        CONFIG_TEST_ASSERT(accCfg.accent == accName);
+    }
+
     // 4. Window width clamping (bounds: 500 to 1600)
     fs::path widthClampFile = tempDir / "width_clamp.conf";
     {

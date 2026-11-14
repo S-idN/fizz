@@ -266,6 +266,8 @@ FizzConfig loadConfig(const std::string& configPath) {
                            [](unsigned char c) { return std::tolower(c); });
             if (a == "blue" || a == "green" || a == "emerald" || a == "purple" ||
                 a == "amber" || a == "orange" || a == "red" || a == "crimson" ||
+                a == "rose" || a == "coral" || a == "indigo" || a == "cyan" ||
+                a == "sunset" || a == "lime" ||
                 a == "teal" || a == "pink") {
                 config.accent = a;
             } else {
