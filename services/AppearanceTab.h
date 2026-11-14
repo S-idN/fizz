@@ -16,10 +16,48 @@ constexpr int kMaxWidth = 1600;
 constexpr int kMinHeight = 320;
 constexpr int kMaxHeight = 1200;
 
+// Standard window size preset constants
+constexpr int kDefaultWindowWidth = 750;
+constexpr int kDefaultWindowHeight = 480;
+constexpr int kCompactWindowWidth = 600;
+constexpr int kCompactWindowHeight = 400;
+constexpr int kLargeWindowWidth = 1000;
+constexpr int kLargeWindowHeight = 650;
+
+enum class WindowSizePreset {
+    Default,
+    Compact,
+    Large
+};
+
+struct WindowPresetInfo {
+    WindowSizePreset preset;
+    std::string id;          // "default", "compact", "large"
+    std::string displayName; // "Default (750 x 480)", "Compact (600 x 400)", "Large (1000 x 650)"
+    int width;
+    int height;
+};
+
+// Returns standard window size presets
+const std::vector<WindowPresetInfo>& getWindowSizePresets();
+
+// Applies a window size preset: sets window size clamped, persists config, and triggers resize callback
+bool applyWindowSizePreset(FizzConfig& config, WindowSizePreset preset,
+                           const std::function<void(int, int)>& onResize = nullptr);
+
+// Applies a window size preset by string identifier ("default", "compact", "large")
+bool applyWindowSizePreset(FizzConfig& config, std::string_view presetId,
+                           const std::function<void(int, int)>& onResize = nullptr);
+
 // Font size constraints
 constexpr float kMinFontSize = 10.0f;
 constexpr float kMaxFontSize = 32.0f;
 constexpr float kDefaultFontSize = 16.0f;
+
+// Curated accent swatch token metrics
+constexpr float kSwatchSize = 26.0f;
+constexpr float kSwatchRounding = 6.0f;
+constexpr float kSwatchSpacing = 8.0f;
 
 // Boundary clamping helpers
 int clampWindowWidth(int width);
@@ -70,6 +108,26 @@ int findActiveMonitorIndex(
     const std::vector<MonitorWorkArea>& monitors,
     int centerX,
     int centerY);
+
+// Result of dynamic resize centering
+struct CenteredResizeResult {
+    WindowPosition position;
+    int monitorIndex = -1;
+};
+
+// Calculates the updated window position to keep the window centered on its active monitor
+// across resize events (from geometry sliders or size preset buttons).
+// Clamps new width and height to [kMinWidth..kMaxWidth] and [kMinHeight..kMaxHeight],
+// identifies the active monitor from the window's current screen position and dimensions,
+// computes centered coordinates within that monitor's work area, and clamps to prevent
+// moving off-screen.
+CenteredResizeResult calculateResizeCentering(
+    const std::vector<MonitorWorkArea>& monitors,
+    const WindowPosition& currentPos,
+    int currentWidth,
+    int currentHeight,
+    int newWidth,
+    int newHeight);
 
 // Information about an available theme option
 struct ThemeOption {

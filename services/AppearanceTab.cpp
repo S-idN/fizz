@@ -73,6 +73,36 @@ int findActiveMonitorIndex(
     return -1;
 }
 
+CenteredResizeResult calculateResizeCentering(
+    const std::vector<MonitorWorkArea>& monitors,
+    const WindowPosition& currentPos,
+    int currentWidth,
+    int currentHeight,
+    int newWidth,
+    int newHeight) {
+    int clampedW = clampWindowWidth(newWidth);
+    int clampedH = clampWindowHeight(newHeight);
+
+    if (monitors.empty()) {
+        return {currentPos, -1};
+    }
+
+    int curW = currentWidth > 0 ? currentWidth : clampedW;
+    int curH = currentHeight > 0 ? currentHeight : clampedH;
+    int centerX = currentPos.x + curW / 2;
+    int centerY = currentPos.y + curH / 2;
+
+    int activeIdx = findActiveMonitorIndex(monitors, centerX, centerY);
+    if (activeIdx < 0 || activeIdx >= static_cast<int>(monitors.size())) {
+        activeIdx = 0; // fallback to primary monitor
+    }
+
+    const auto& workArea = monitors[activeIdx];
+    WindowPosition target = calculateCenteredWindowPos(workArea, clampedW, clampedH, currentPos);
+
+    return {target, activeIdx};
+}
+
 void setWindowResizeCallback(std::function<void(int width, int height)> cb) {
     s_globalWindowResizeCallback = std::move(cb);
 }
@@ -102,6 +132,42 @@ bool setWindowSize(FizzConfig& config, int width, int height,
 
     saveConfig(config);
     return true;
+}
+
+const std::vector<WindowPresetInfo>& getWindowSizePresets() {
+    static const std::vector<WindowPresetInfo> s_presets = {
+        {WindowSizePreset::Default, "default", "Default (750 x 480)", kDefaultWindowWidth, kDefaultWindowHeight},
+        {WindowSizePreset::Compact, "compact", "Compact (600 x 400)", kCompactWindowWidth, kCompactWindowHeight},
+        {WindowSizePreset::Large,   "large",   "Large (1000 x 650)",  kLargeWindowWidth,   kLargeWindowHeight}
+    };
+    return s_presets;
+}
+
+bool applyWindowSizePreset(FizzConfig& config, WindowSizePreset preset,
+                           const std::function<void(int, int)>& onResize) {
+    switch (preset) {
+        case WindowSizePreset::Default:
+            return setWindowSize(config, kDefaultWindowWidth, kDefaultWindowHeight, onResize);
+        case WindowSizePreset::Compact:
+            return setWindowSize(config, kCompactWindowWidth, kCompactWindowHeight, onResize);
+        case WindowSizePreset::Large:
+            return setWindowSize(config, kLargeWindowWidth, kLargeWindowHeight, onResize);
+    }
+    return false;
+}
+
+bool applyWindowSizePreset(FizzConfig& config, std::string_view presetId,
+                           const std::function<void(int, int)>& onResize) {
+    std::string lower(presetId);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lower == "compact") {
+        return applyWindowSizePreset(config, WindowSizePreset::Compact, onResize);
+    } else if (lower == "large") {
+        return applyWindowSizePreset(config, WindowSizePreset::Large, onResize);
+    } else {
+        return applyWindowSizePreset(config, WindowSizePreset::Default, onResize);
+    }
 }
 
 bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
@@ -345,47 +411,47 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
     const auto& accents = getCuratedAccents();
     std::string activeNorm = normalizeAccentId(config.accent);
 
+    const ImVec2 swatchSize(kSwatchSize, kSwatchSize);
+
     for (size_t i = 0; i < accents.size(); ++i) {
         const auto& choice = accents[i];
         bool isSelected = (activeNorm == choice.id);
 
-        ImGui::PushID((int)i);
+        ImGui::PushID(static_cast<int>(i));
 
-        std::string radioId = "##radio_" + choice.id;
-        if (ImGui::RadioButton(radioId.c_str(), isSelected)) {
+        if (i > 0) {
+            ImGui::SameLine(0.0f, kSwatchSpacing);
+        }
+
+        std::string swatchBtnId = "##swatch_" + choice.id;
+        if (ImGui::InvisibleButton(swatchBtnId.c_str(), swatchSize)) {
             if (!isSelected) {
                 selectAccent(config, choice.id);
                 modified = true;
             }
         }
-        ImGui::SameLine();
 
-        ImVec2 chipSize(18.0f, 18.0f);
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        p0.y += 1.0f;
-        ImVec2 p1(p0.x + chipSize.x, p0.y + chipSize.y);
+        ImVec2 pMin = ImGui::GetItemRectMin();
+        ImVec2 pMax = ImGui::GetItemRectMax();
+
+        bool hovered = ImGui::IsItemHovered();
+        if (hovered) {
+            ImGui::SetTooltip("%s", choice.displayName.c_str());
+        }
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(p0, p1, ImGui::GetColorU32(choice.color), 4.0f);
+
+        // Render filled color swatch
+        dl->AddRectFilled(pMin, pMax, ImGui::GetColorU32(choice.color), kSwatchRounding);
+
+        // Render active contrast ring / border or hover highlight
         if (isSelected) {
-            dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Text), 4.0f, 0, 1.5f);
-        }
-
-        std::string chipBtnId = "##chip_" + choice.id;
-        if (ImGui::InvisibleButton(chipBtnId.c_str(), chipSize)) {
-            if (!isSelected) {
-                selectAccent(config, choice.id);
-                modified = true;
-            }
-        }
-        ImGui::SameLine();
-
-        std::string labelId = choice.displayName + "##label_" + choice.id;
-        if (ImGui::Selectable(labelId.c_str(), isSelected, 0, ImVec2(160.0f, 0.0f))) {
-            if (!isSelected) {
-                selectAccent(config, choice.id);
-                modified = true;
-            }
+            dl->AddRect(pMin, pMax, ImGui::GetColorU32(ImGuiCol_Text), kSwatchRounding, 0, 2.0f);
+        } else if (hovered) {
+            ImU32 hoverCol = (config.theme == "light")
+                ? IM_COL32(0, 0, 0, 80)
+                : IM_COL32(255, 255, 255, 100);
+            dl->AddRect(pMin, pMax, hoverCol, kSwatchRounding, 0, 1.5f);
         }
 
         ImGui::PopID();
@@ -420,19 +486,19 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
 
     ImGui::Spacing();
     if (ImGui::SmallButton("Default (750 x 480)##preset_default")) {
-        if (setWindowSize(config, 750, 480, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Default, callbacks.onWindowResize)) {
             modified = true;
         }
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Compact (600 x 400)##preset_compact")) {
-        if (setWindowSize(config, 600, 400, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Compact, callbacks.onWindowResize)) {
             modified = true;
         }
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Large (1000 x 650)##preset_large")) {
-        if (setWindowSize(config, 1000, 650, callbacks.onWindowResize)) {
+        if (applyWindowSizePreset(config, WindowSizePreset::Large, callbacks.onWindowResize)) {
             modified = true;
         }
     }
@@ -495,33 +561,8 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
         ImGui::EndCombo();
     }
 
-    static char s_fontPathBuf[512] = "";
-    if (!ImGui::IsItemActive()) {
-        std::strncpy(s_fontPathBuf, config.font_path.c_str(), sizeof(s_fontPathBuf) - 1);
-        s_fontPathBuf[sizeof(s_fontPathBuf) - 1] = '\0';
-    }
-
-    ImGui::SetNextItemWidth(380.0f);
-    if (ImGui::InputTextWithHint("Font Path##custom_font_path", "Path to .ttf or .otf file (empty for default)", s_fontPathBuf, sizeof(s_fontPathBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        if (setFontPath(config, s_fontPathBuf, callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear##clear_font_path")) {
-        s_fontPathBuf[0] = '\0';
-        if (setFontPath(config, "", callbacks.onFontRebuild)) {
-            modified = true;
-        }
-    }
-
     ImGui::Spacing();
-    ImGui::TextDisabled("Select standard system fonts or configure custom TTF/OTF path. Dynamically rebuilds font atlas.");
+    ImGui::TextDisabled("Select bundled or system font family. Dynamically rebuilds font atlas.");
 
     return modified;
 }

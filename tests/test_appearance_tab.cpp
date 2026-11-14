@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <set>
 #include <filesystem>
 #include <fstream>
 #include <unistd.h>
@@ -368,6 +369,11 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Font: ") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("Changes apply live without restart") == std::string::npos);
 
+    // Verify custom font path input and Clear button are absent
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame1.find("custom TTF/OTF path") == std::string::npos);
+
     // Frame 2: Render with explicit AppearanceCallbacks wired
     int resizeCount = 0;
     int fontRebuildCount = 0;
@@ -404,6 +410,19 @@ void test_appearance_headless_ui_rendering() {
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Size:") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Font: ") == std::string::npos);
     APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Changes apply live without restart") == std::string::npos);
+
+    // Verify window geometry sliders and preset buttons are rendered in Appearance tab
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Geometry") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Width") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Window Height") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Default (750 x 480)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Compact (600 x 400)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("Large (1000 x 650)") != std::string::npos);
+
+    // Verify custom font path input and Clear button are absent
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(capturedUiTextFrame2.find("custom TTF/OTF path") == std::string::npos);
 
     ImGui::DestroyContext(ctx);
 
@@ -893,6 +912,559 @@ void test_appearance_window_centering_and_workarea() {
     std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
 }
 
+void test_appearance_horizontal_accent_swatches() {
+    std::cout << "[TEST] Running test_appearance_horizontal_accent_swatches...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_swatches";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confPath = tempDir / "fizz.conf";
+    setConfigPath(confPath.string());
+
+    FizzConfig config = FizzConfig::defaults();
+    config.theme = "dark";
+    config.accent = "blue";
+    bool saved = saveConfig(config);
+    APPEARANCE_TEST_ASSERT(saved);
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    // Frame 1: Render appearance tab with accent = "blue"
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    bool modified = fizz::ui::renderAppearanceTab(config);
+    APPEARANCE_TEST_ASSERT(!modified);
+
+    ImGui::End();
+    ImGui::Render();
+
+    ImDrawData* drawData = ImGui::GetDrawData();
+    APPEARANCE_TEST_ASSERT(drawData != nullptr);
+    APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
+
+    const auto& accents = fizz::ui::getCuratedAccents();
+    APPEARANCE_TEST_ASSERT(accents.size() == 10);
+
+    // Collect bounding boxes of the 10 swatches from the draw list
+    struct SwatchBounds {
+        float minX = 1e9f;
+        float minY = 1e9f;
+        float maxX = -1e9f;
+        float maxY = -1e9f;
+        bool found = false;
+    };
+    std::vector<SwatchBounds> swatchBoxes(accents.size());
+
+    ImDrawList* mainDl = drawData->CmdLists[0];
+    ImU32 emeraldCol = ImGui::GetColorU32(accents[1].color);
+    float swatchRowY = 0.0f;
+    for (int i = 0; i < mainDl->VtxBuffer.Size; ++i) {
+        if (mainDl->VtxBuffer[i].col == emeraldCol) {
+            swatchRowY = mainDl->VtxBuffer[i].pos.y;
+            break;
+        }
+    }
+    APPEARANCE_TEST_ASSERT(swatchRowY > 0.0f);
+
+    for (size_t a = 0; a < accents.size(); ++a) {
+        ImU32 targetCol = ImGui::GetColorU32(accents[a].color);
+        for (int i = 0; i < mainDl->VtxBuffer.Size; ++i) {
+            const auto& v = mainDl->VtxBuffer[i];
+            if (v.col == targetCol && v.pos.y >= swatchRowY - 1.0f && v.pos.y <= swatchRowY + 28.0f) {
+                swatchBoxes[a].minX = std::min(swatchBoxes[a].minX, v.pos.x);
+                swatchBoxes[a].minY = std::min(swatchBoxes[a].minY, v.pos.y);
+                swatchBoxes[a].maxX = std::max(swatchBoxes[a].maxX, v.pos.x);
+                swatchBoxes[a].maxY = std::max(swatchBoxes[a].maxY, v.pos.y);
+                swatchBoxes[a].found = true;
+            }
+        }
+    }
+
+    // 1. Verify all 10 swatches were found and render in a single horizontal row
+    float commonY = swatchBoxes[0].minY;
+    for (size_t a = 0; a < accents.size(); ++a) {
+        APPEARANCE_TEST_ASSERT(swatchBoxes[a].found);
+        float w = swatchBoxes[a].maxX - swatchBoxes[a].minX;
+        float h = swatchBoxes[a].maxY - swatchBoxes[a].minY;
+
+        // Swatch tokens must be approx 24-28px
+        APPEARANCE_TEST_ASSERT(w >= 24.0f && w <= 28.0f);
+        APPEARANCE_TEST_ASSERT(h >= 24.0f && h <= 28.0f);
+
+        // All 10 swatches must be on the EXACT SAME horizontal baseline (SameLine)
+        APPEARANCE_TEST_ASSERT(nearEqual(swatchBoxes[a].minY, commonY, 1.0f));
+
+        // Horizontal ordering: each swatch must be strictly to the right of the previous
+        if (a > 0) {
+            APPEARANCE_TEST_ASSERT(swatchBoxes[a].minX > swatchBoxes[a - 1].maxX);
+        }
+    }
+
+    // Swatches must fit comfortably within the 750px window
+    APPEARANCE_TEST_ASSERT(swatchBoxes.back().maxX < 750.0f);
+
+    // 2. Test Hover: Hover over Nord Cyan (index 7) displays a tooltip
+    size_t cyanIndex = 7;
+    APPEARANCE_TEST_ASSERT(accents[cyanIndex].id == "cyan");
+    float cyanCenterX = (swatchBoxes[cyanIndex].minX + swatchBoxes[cyanIndex].maxX) * 0.5f;
+    float cyanCenterY = (swatchBoxes[cyanIndex].minY + swatchBoxes[cyanIndex].maxY) * 0.5f;
+
+    io.AddMousePosEvent(cyanCenterX, cyanCenterY);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config);
+    ImGui::LogFinish();
+    std::string hoverClip = ImGui::GetClipboardText() ? ImGui::GetClipboardText() : "";
+    APPEARANCE_TEST_ASSERT(hoverClip.find("Nord Cyan") != std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // 3. Test Click: Clicking the swatch activates that accent live and persists to fizz.conf
+    // Frame 3a: Mouse down on Nord Cyan
+    io.AddMouseButtonEvent(0, true);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    fizz::ui::renderAppearanceTab(config);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Frame 3b: Mouse up on Nord Cyan -> triggers button click
+    io.AddMouseButtonEvent(0, false);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    bool clickModified = fizz::ui::renderAppearanceTab(config);
+    APPEARANCE_TEST_ASSERT(clickModified);
+    APPEARANCE_TEST_ASSERT(config.accent == "cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCyan));
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Verify atomic disk persistence
+    FizzConfig loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "cyan");
+
+    // Frame 4: Render next frame with active selection live
+    // Move mouse away so hover highlight doesn't interfere
+    io.AddMousePosEvent(-1000.0f, -1000.0f);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    fizz::ui::renderAppearanceTab(config);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // 4. Test active contrast ring/border on the currently selected swatch
+    // The active swatch has a border outline drawn with ImGuiCol_Text around its bounds
+    ImDrawData* clickDrawData = ImGui::GetDrawData();
+    ImDrawList* activeDl = clickDrawData->CmdLists[0];
+    ImU32 textColor = ImGui::GetColorU32(ImGuiCol_Text);
+
+    bool hasContrastBorder = false;
+    for (int i = 0; i < activeDl->VtxBuffer.Size; ++i) {
+        const auto& v = activeDl->VtxBuffer[i];
+        if (v.col == textColor) {
+            // Check if vertex is on or very close to the active swatch bounding box
+            if (v.pos.x >= swatchBoxes[cyanIndex].minX - 2.0f &&
+                v.pos.x <= swatchBoxes[cyanIndex].maxX + 2.0f &&
+                v.pos.y >= swatchBoxes[cyanIndex].minY - 2.0f &&
+                v.pos.y <= swatchBoxes[cyanIndex].maxY + 2.0f) {
+                hasContrastBorder = true;
+                break;
+            }
+        }
+    }
+    APPEARANCE_TEST_ASSERT(hasContrastBorder);
+
+    // Cleanup
+    ImGui::DestroyContext(ctx);
+    setConfigPath("");
+    fs::remove_all(tempDir, ec);
+
+    std::cout << "[PASS] test_appearance_horizontal_accent_swatches passed.\n";
+}
+
+void test_appearance_window_size_presets() {
+    std::cout << "[TEST] Running test_appearance_window_size_presets...\n";
+
+    const auto& presets = fizz::ui::getWindowSizePresets();
+    APPEARANCE_TEST_ASSERT(presets.size() == 3);
+    APPEARANCE_TEST_ASSERT(presets[0].preset == fizz::ui::WindowSizePreset::Default);
+    APPEARANCE_TEST_ASSERT(presets[0].id == "default");
+    APPEARANCE_TEST_ASSERT(presets[0].width == 750);
+    APPEARANCE_TEST_ASSERT(presets[0].height == 480);
+
+    APPEARANCE_TEST_ASSERT(presets[1].preset == fizz::ui::WindowSizePreset::Compact);
+    APPEARANCE_TEST_ASSERT(presets[1].id == "compact");
+    APPEARANCE_TEST_ASSERT(presets[1].width == 600);
+    APPEARANCE_TEST_ASSERT(presets[1].height == 400);
+
+    APPEARANCE_TEST_ASSERT(presets[2].preset == fizz::ui::WindowSizePreset::Large);
+    APPEARANCE_TEST_ASSERT(presets[2].id == "large");
+    APPEARANCE_TEST_ASSERT(presets[2].width == 1000);
+    APPEARANCE_TEST_ASSERT(presets[2].height == 650);
+
+    FizzConfig config = FizzConfig::defaults();
+    APPEARANCE_TEST_ASSERT(config.window_width == 750);
+    APPEARANCE_TEST_ASSERT(config.window_height == 480);
+
+    int cbWidth = 0, cbHeight = 0, cbCount = 0;
+    auto resizeCb = [&](int w, int h) {
+        cbWidth = w;
+        cbHeight = h;
+        cbCount++;
+    };
+
+    // 1. Redundant default preset -> no change, callback not fired
+    bool redundantDefault = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Default, resizeCb);
+    APPEARANCE_TEST_ASSERT(!redundantDefault);
+    APPEARANCE_TEST_ASSERT(cbCount == 0);
+
+    // 2. Apply Compact preset
+    bool changedCompact = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCb);
+    APPEARANCE_TEST_ASSERT(changedCompact);
+    APPEARANCE_TEST_ASSERT(config.window_width == 600);
+    APPEARANCE_TEST_ASSERT(config.window_height == 400);
+    APPEARANCE_TEST_ASSERT(cbCount == 1);
+    APPEARANCE_TEST_ASSERT(cbWidth == 600);
+    APPEARANCE_TEST_ASSERT(cbHeight == 400);
+
+    // Redundant compact call
+    APPEARANCE_TEST_ASSERT(!fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCb));
+    APPEARANCE_TEST_ASSERT(cbCount == 1);
+
+    // 3. Apply Large preset
+    bool changedLarge = fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Large, resizeCb);
+    APPEARANCE_TEST_ASSERT(changedLarge);
+    APPEARANCE_TEST_ASSERT(config.window_width == 1000);
+    APPEARANCE_TEST_ASSERT(config.window_height == 650);
+    APPEARANCE_TEST_ASSERT(cbCount == 2);
+    APPEARANCE_TEST_ASSERT(cbWidth == 1000);
+    APPEARANCE_TEST_ASSERT(cbHeight == 650);
+
+    // 4. Apply Default preset via string identifier overload
+    bool changedDefaultStr = fizz::ui::applyWindowSizePreset(config, "default", resizeCb);
+    APPEARANCE_TEST_ASSERT(changedDefaultStr);
+    APPEARANCE_TEST_ASSERT(config.window_width == 750);
+    APPEARANCE_TEST_ASSERT(config.window_height == 480);
+    APPEARANCE_TEST_ASSERT(cbCount == 3);
+    APPEARANCE_TEST_ASSERT(cbWidth == 750);
+    APPEARANCE_TEST_ASSERT(cbHeight == 480);
+
+    // 5. String identifier overload for compact and large
+    APPEARANCE_TEST_ASSERT(fizz::ui::applyWindowSizePreset(config, "compact", resizeCb));
+    APPEARANCE_TEST_ASSERT(cbWidth == 600 && cbHeight == 400);
+    APPEARANCE_TEST_ASSERT(cbCount == 4);
+
+    APPEARANCE_TEST_ASSERT(fizz::ui::applyWindowSizePreset(config, "large", resizeCb));
+    APPEARANCE_TEST_ASSERT(cbWidth == 1000 && cbHeight == 650);
+    APPEARANCE_TEST_ASSERT(cbCount == 5);
+
+    std::cout << "[PASS] test_appearance_window_size_presets passed.\n";
+}
+
+void test_appearance_live_resize_centering() {
+    std::cout << "[TEST] Running test_appearance_live_resize_centering...\n";
+
+    // 1. Single monitor: Primary display 1920x1080
+    std::vector<fizz::ui::MonitorWorkArea> singleMonitor = {
+        {0, 0, 1920, 1080}
+    };
+
+    // Initial startup at Default 750x480
+    fizz::ui::WindowPosition initialPos{585, 300}; // (1920-750)/2, (1080-480)/2
+
+    // Resize to Large (1000x650)
+    auto resLarge = fizz::ui::calculateResizeCentering(
+        singleMonitor, initialPos, 750, 480, 1000, 650);
+    APPEARANCE_TEST_ASSERT(resLarge.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resLarge.position.x == 460); // (1920 - 1000) / 2
+    APPEARANCE_TEST_ASSERT(resLarge.position.y == 215); // (1080 - 650) / 2
+    // Verify window center matches monitor center (960, 540)
+    APPEARANCE_TEST_ASSERT(resLarge.position.x + 1000 / 2 == 960);
+    APPEARANCE_TEST_ASSERT(resLarge.position.y + 650 / 2 == 215 + 325); // 540
+
+    // Resize from Large to Compact (600x400)
+    auto resCompact = fizz::ui::calculateResizeCentering(
+        singleMonitor, resLarge.position, 1000, 650, 600, 400);
+    APPEARANCE_TEST_ASSERT(resCompact.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resCompact.position.x == 660); // (1920 - 600) / 2
+    APPEARANCE_TEST_ASSERT(resCompact.position.y == 340); // (1080 - 400) / 2
+    APPEARANCE_TEST_ASSERT(resCompact.position.x + 600 / 2 == 960);
+    APPEARANCE_TEST_ASSERT(resCompact.position.y + 400 / 2 == 540);
+
+    // Resize back to Default (750x480)
+    auto resDefault = fizz::ui::calculateResizeCentering(
+        singleMonitor, resCompact.position, 600, 400, 750, 480);
+    APPEARANCE_TEST_ASSERT(resDefault.monitorIndex == 0);
+    APPEARANCE_TEST_ASSERT(resDefault.position.x == 585);
+    APPEARANCE_TEST_ASSERT(resDefault.position.y == 300);
+
+    // Slider adjustments: incremental changes do not cause center drift
+    fizz::ui::WindowPosition curPos = resDefault.position;
+    int curW = 750;
+    int curH = 480;
+    for (int nextW = 760; nextW <= 900; nextW += 10) {
+        auto resStep = fizz::ui::calculateResizeCentering(
+            singleMonitor, curPos, curW, curH, nextW, curH);
+        APPEARANCE_TEST_ASSERT(resStep.monitorIndex == 0);
+        APPEARANCE_TEST_ASSERT(resStep.position.x == (1920 - nextW) / 2);
+        // Center point is always 960
+        APPEARANCE_TEST_ASSERT(resStep.position.x + nextW / 2 == 960);
+        curPos = resStep.position;
+        curW = nextW;
+    }
+
+    // 2. Multi-monitor setup with panel offset on secondary monitor
+    std::vector<fizz::ui::MonitorWorkArea> dualMonitors = {
+        {0, 0, 1920, 1080},
+        {1920, 32, 2560, 1408} // Secondary monitor: top panel of 32px
+    };
+
+    // Window initially centered on secondary monitor at Default 750x480
+    // Secondary center: x = 1920 + 2560/2 = 3200, y = 32 + 1408/2 = 736
+    fizz::ui::WindowPosition secInitialPos{1920 + (2560 - 750) / 2, 32 + (1408 - 480) / 2}; // {2825, 496}
+    APPEARANCE_TEST_ASSERT(secInitialPos.x == 2825);
+    APPEARANCE_TEST_ASSERT(secInitialPos.y == 496);
+
+    // Resize to Large on secondary monitor -> stays on secondary monitor without hopping!
+    auto resSecLarge = fizz::ui::calculateResizeCentering(
+        dualMonitors, secInitialPos, 750, 480, 1000, 650);
+    APPEARANCE_TEST_ASSERT(resSecLarge.monitorIndex == 1);
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.x == 1920 + (2560 - 1000) / 2); // 2700
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.y == 32 + (1408 - 650) / 2);    // 411
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.x + 1000 / 2 == 3200);
+    APPEARANCE_TEST_ASSERT(resSecLarge.position.y + 650 / 2 == 411 + 325); // 736
+
+    // Resize to Compact on secondary monitor
+    auto resSecCompact = fizz::ui::calculateResizeCentering(
+        dualMonitors, resSecLarge.position, 1000, 650, 600, 400);
+    APPEARANCE_TEST_ASSERT(resSecCompact.monitorIndex == 1);
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.x == 1920 + (2560 - 600) / 2); // 2900
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.y == 32 + (1408 - 400) / 2);    // 536
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.x + 600 / 2 == 3200);
+    APPEARANCE_TEST_ASSERT(resSecCompact.position.y + 400 / 2 == 736);
+
+    // 3. Coordinate clamping preventing window moving off-screen
+    std::vector<fizz::ui::MonitorWorkArea> smallMonitors = {
+        {50, 50, 800, 600}
+    };
+    // If user sets size to 1600x1200 on 800x600 display, coordinates clamp to monitor top-left
+    auto resOverflow = fizz::ui::calculateResizeCentering(
+        smallMonitors, {100, 100}, 600, 400, 1600, 1200);
+    APPEARANCE_TEST_ASSERT(resOverflow.position.x == 50);
+    APPEARANCE_TEST_ASSERT(resOverflow.position.y == 50);
+
+    // Window dimensions outside [kMinWidth..kMaxWidth] are clamped before centering
+    auto resUnderflow = fizz::ui::calculateResizeCentering(
+        singleMonitor, {585, 300}, 750, 480, 200, 100);
+    // 200 clamped to 500, 100 clamped to 320 -> (1920-500)/2 = 710, (1080-320)/2 = 380
+    APPEARANCE_TEST_ASSERT(resUnderflow.position.x == 710);
+    APPEARANCE_TEST_ASSERT(resUnderflow.position.y == 380);
+
+    // 4. Graceful handling of empty or zero-sized monitors
+    std::vector<fizz::ui::MonitorWorkArea> emptyMonitors;
+    auto resEmpty = fizz::ui::calculateResizeCentering(
+        emptyMonitors, {123, 456}, 750, 480, 800, 500);
+    APPEARANCE_TEST_ASSERT(resEmpty.position.x == 123);
+    APPEARANCE_TEST_ASSERT(resEmpty.position.y == 456);
+    APPEARANCE_TEST_ASSERT(resEmpty.monitorIndex == -1);
+
+    // 5. End-to-end simulated callback loop with AppearanceTab preset buttons and sliders
+    struct MockWindow {
+        fizz::ui::WindowPosition pos{585, 300};
+        int width = 750;
+        int height = 480;
+    } mockWin;
+
+    auto resizeCallback = [&](int newW, int newH) {
+        auto res = fizz::ui::calculateResizeCentering(
+            singleMonitor, mockWin.pos, mockWin.width, mockWin.height, newW, newH);
+        mockWin.pos = res.position;
+        mockWin.width = newW;
+        mockWin.height = newH;
+    };
+
+    FizzConfig config = FizzConfig::defaults();
+    // Preset: Compact
+    fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Compact, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 600 && mockWin.height == 400);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == 660 && mockWin.pos.y == 340);
+    APPEARANCE_TEST_ASSERT(config.window_width == 600 && config.window_height == 400);
+
+    // Preset: Large
+    fizz::ui::applyWindowSizePreset(config, fizz::ui::WindowSizePreset::Large, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 1000 && mockWin.height == 650);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == 460 && mockWin.pos.y == 215);
+    APPEARANCE_TEST_ASSERT(config.window_width == 1000 && config.window_height == 650);
+
+    // Slider: Width 820, Height 500
+    fizz::ui::setWindowSize(config, 820, 500, resizeCallback);
+    APPEARANCE_TEST_ASSERT(mockWin.width == 820 && mockWin.height == 500);
+    APPEARANCE_TEST_ASSERT(mockWin.pos.x == (1920 - 820) / 2); // 550
+    APPEARANCE_TEST_ASSERT(mockWin.pos.y == (1080 - 500) / 2); // 290
+    APPEARANCE_TEST_ASSERT(config.window_width == 820 && config.window_height == 500);
+
+    std::cout << "[PASS] test_appearance_live_resize_centering passed.\n";
+}
+
+void test_appearance_font_selection_via_combo_box_and_no_custom_input() {
+    std::cout << "[TEST] Running test_appearance_font_selection_via_combo_box_and_no_custom_input...\n";
+
+    // 1. Verify discovered fonts order: Space Grotesk (Bundled Default) at index 0 followed by system fonts
+    const auto discovered = getDiscoveredSystemFonts();
+    APPEARANCE_TEST_ASSERT(!discovered.empty());
+    APPEARANCE_TEST_ASSERT(discovered[0].familyName == "Space Grotesk (Bundled Default)");
+    APPEARANCE_TEST_ASSERT(discovered[0].available);
+    APPEARANCE_TEST_ASSERT(!discovered[0].path.empty());
+
+    // 2. Headless UI rendering test with combo popup open and closed
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    int fontRebuildCount = 0;
+    std::string rebuiltFontPath;
+    float rebuiltFontSize = 0.0f;
+    fizz::ui::AppearanceCallbacks callbacks;
+    callbacks.onFontRebuild = [&](const std::string& path, float sz) {
+        fontRebuildCount++;
+        rebuiltFontPath = path;
+        rebuiltFontSize = sz;
+    };
+
+    // Frame 1: Render tab, verify no custom font path input or clear button
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_font_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config, callbacks);
+    ImGui::LogFinish();
+
+    std::string frame1Text;
+    if (const char* clip = ImGui::GetClipboardText()) {
+        frame1Text = clip;
+    }
+
+    APPEARANCE_TEST_ASSERT(frame1Text.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("clear_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame1Text.find("custom TTF/OTF path") == std::string::npos);
+
+    // Request opening combo popup for Frame 2
+    ImGuiID comboId = ImGui::GetID("Font Family##font_family");
+    ImGuiID popupId = ImHashStr("##ComboPopup", 0, comboId);
+    ImGui::OpenPopupEx(popupId, ImGuiPopupFlags_None);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Frame 2: Render with combo opened, verify bundled default is displayed
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("test_font_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config, callbacks);
+    ImGui::LogFinish();
+
+    std::string frame2Text;
+    if (const char* clip = ImGui::GetClipboardText()) {
+        frame2Text = clip;
+    }
+
+    APPEARANCE_TEST_ASSERT(frame2Text.find("Space Grotesk (Bundled Default)") != std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("custom_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("clear_font_path") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("[Clear]") == std::string::npos);
+    APPEARANCE_TEST_ASSERT(frame2Text.find("custom TTF/OTF path") == std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext(ctx);
+
+    // 3. Selection updates configuration, rebuilds font atlas, and triggers callbacks
+    if (discovered.size() > 1) {
+        const auto& targetFont = discovered[1];
+        bool changed = fizz::ui::setFontPath(config, targetFont.path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(changed);
+        APPEARANCE_TEST_ASSERT(config.font_path == targetFont.path);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 1);
+        APPEARANCE_TEST_ASSERT(rebuiltFontPath == targetFont.path);
+        APPEARANCE_TEST_ASSERT(nearEqual(rebuiltFontSize, config.font_size));
+
+        // Redundant selection does not trigger reload
+        bool redundant = fizz::ui::setFontPath(config, targetFont.path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(!redundant);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 1);
+
+        // Selecting bundled default updates config.font_path and triggers reload
+        bool changedBack = fizz::ui::setFontPath(config, discovered[0].path, callbacks.onFontRebuild);
+        APPEARANCE_TEST_ASSERT(changedBack);
+        APPEARANCE_TEST_ASSERT(config.font_path == discovered[0].path);
+        APPEARANCE_TEST_ASSERT(fontRebuildCount == 2);
+        APPEARANCE_TEST_ASSERT(rebuiltFontPath == discovered[0].path);
+    }
+
+    // 4. Structural verification of AppearanceTab.cpp
+    fs::path tabSourcePath = fs::path(__FILE__).parent_path().parent_path() / "services" / "AppearanceTab.cpp";
+    if (fs::exists(tabSourcePath)) {
+        std::ifstream in(tabSourcePath);
+        std::string sourceContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        APPEARANCE_TEST_ASSERT(sourceContent.find("##custom_font_path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("##clear_font_path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("s_fontPathBuf") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("custom TTF/OTF path") == std::string::npos);
+        APPEARANCE_TEST_ASSERT(sourceContent.find("Font Family##font_family") != std::string::npos);
+    }
+
+    std::cout << "[PASS] test_appearance_font_selection_via_combo_box_and_no_custom_input passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -900,6 +1472,8 @@ void run_appearance_tab_tests() {
     test_appearance_atomic_config_persistence();
     test_appearance_headless_ui_rendering();
     test_appearance_window_geometry_clamping_and_callbacks();
+    test_appearance_window_size_presets();
+    test_appearance_live_resize_centering();
     test_appearance_font_size_clamping();
     test_appearance_dynamic_font_atlas_rebuild_and_safety();
     test_appearance_system_font_discovery();
@@ -907,4 +1481,6 @@ void run_appearance_tab_tests() {
     test_appearance_custom_font_and_icon_merging();
     test_appearance_window_centering_and_workarea();
     test_settings_tab_order_and_clean_footer();
+    test_appearance_font_selection_via_combo_box_and_no_custom_input();
+    test_appearance_horizontal_accent_swatches();
 }
