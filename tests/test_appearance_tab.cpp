@@ -1659,6 +1659,85 @@ void test_appearance_deferred_font_rebuild_and_integer_slider() {
     std::cout << "[PASS] test_appearance_deferred_font_rebuild_and_integer_slider passed.\n";
 }
 
+void test_appearance_multi_tier_fallback_cascade() {
+    std::cout << "[TEST] Running test_appearance_multi_tier_fallback_cascade...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    int reloadCount = 0;
+    auto reloadCb = [&]() { reloadCount++; };
+
+    // 1. Tier 1: Configured font path exists and is readable
+    std::string sysFont = resolveSystemFont();
+    if (!sysFont.empty()) {
+        bool ok = fizz::ui::rebuildFontAtlas(sysFont, 16.0f, reloadCb);
+        APPEARANCE_TEST_ASSERT(ok);
+        APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+        APPEARANCE_TEST_ASSERT(reloadCount == 1);
+    }
+
+    // 2. Tier 2: Non-existent custom font path falls back to bundled Space Grotesk
+    bool ok2 = fizz::ui::rebuildFontAtlas("/nonexistent/bogus/path/font.ttf", 16.0f, reloadCb);
+    APPEARANCE_TEST_ASSERT(ok2);
+    APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+
+    // 3. Tier 3: Bundled Space Grotesk missing/deleted -> falls back to scalable system font via Fontconfig
+    // Simulate deliberate deletion of Space Grotesk by setting FIZZ_DATA_DIR to an empty directory
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_cascade";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
+
+    const char* prevFizzData = std::getenv("FIZZ_DATA_DIR");
+    std::string savedFizzData = prevFizzData ? prevFizzData : "";
+
+    setenv("FIZZ_DATA_DIR", tempRoot.c_str(), 1);
+
+    // Verify resolveAssetFile returns empty for Space Grotesk now
+    std::string assetSpace = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    APPEARANCE_TEST_ASSERT(assetSpace.empty());
+
+    // rebuildFontAtlas must cleanly cascade to system font or AddFontDefault without crashing or asserting!
+    bool ok3 = fizz::ui::rebuildFontAtlas("", 18.0f, reloadCb);
+    APPEARANCE_TEST_ASSERT(ok3);
+    APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+
+    // 4. Resilience to missing/deleted Font Awesome icon fonts:
+    // Create a font directory with Space Grotesk but WITHOUT Font Awesome icons
+    fs::path fontDir = tempRoot / "fonts";
+    fs::create_directories(fontDir, ec);
+    fs::path mockFont = fontDir / "SpaceGrotesk-VariableFont_wght.ttf";
+    if (savedFizzData.empty()) unsetenv("FIZZ_DATA_DIR");
+    std::string realBundled = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    if (!realBundled.empty() && fs::exists(realBundled)) {
+        fs::copy_file(realBundled, mockFont, fs::copy_options::overwrite_existing, ec);
+    } else {
+        std::ofstream(mockFont) << "dummy font";
+    }
+
+    setenv("FIZZ_DATA_DIR", tempRoot.c_str(), 1);
+    // At this point, Space Grotesk is present in FIZZ_DATA_DIR, but icons/ is absent!
+    bool ok4 = fizz::ui::rebuildFontAtlas("", 16.0f, reloadCb);
+    APPEARANCE_TEST_ASSERT(ok4);
+    APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+
+    // Restore env
+    if (!savedFizzData.empty()) setenv("FIZZ_DATA_DIR", savedFizzData.c_str(), 1);
+    else unsetenv("FIZZ_DATA_DIR");
+    fs::remove_all(tempRoot, ec);
+
+    // 5. Normal rebuild with defaults restored
+    bool ok5 = fizz::ui::rebuildFontAtlas("", 16.0f, reloadCb);
+    APPEARANCE_TEST_ASSERT(ok5);
+    APPEARANCE_TEST_ASSERT(io.Fonts->Fonts.Size > 0);
+
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_appearance_multi_tier_fallback_cascade passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
@@ -1671,6 +1750,7 @@ void run_appearance_tab_tests() {
     test_appearance_live_resize_centering();
     test_appearance_font_size_clamping();
     test_appearance_dynamic_font_atlas_rebuild_and_safety();
+    test_appearance_multi_tier_fallback_cascade();
     test_appearance_system_font_discovery();
     test_appearance_geometry_and_font_atomic_persistence();
     test_appearance_custom_font_and_icon_merging();

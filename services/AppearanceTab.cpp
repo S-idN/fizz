@@ -231,26 +231,33 @@ bool rebuildFontAtlas(const std::string& fontPath, float fontSize,
 
     atlas->Clear();
 
-    std::string resolved;
-    if (!fontPath.empty()) {
-        resolved = fontPath;
-    } else {
-        std::string customDefault = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
-        if (!customDefault.empty()) {
-            resolved = customDefault;
-        } else {
-            resolved = resolveSystemFont();
+    ImFont* font = nullptr;
+    ImFontConfig cfg;
+    cfg.Flags |= ImFontFlags_NoLoadError;
+
+    // Multi-tier font fallback cascade:
+    // Tier 1: User-configured fontPath (if non-empty and readable)
+    if (!fontPath.empty() && access(fontPath.c_str(), R_OK) == 0) {
+        font = atlas->AddFontFromFileTTF(fontPath.c_str(), clampedSize, &cfg, fizz::ui::getUiGlyphRanges());
+    }
+
+    // Tier 2: Bundled Space Grotesk font
+    if (!font) {
+        std::string bundledDefault = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+        if (!bundledDefault.empty() && access(bundledDefault.c_str(), R_OK) == 0) {
+            font = atlas->AddFontFromFileTTF(bundledDefault.c_str(), clampedSize, &cfg, fizz::ui::getUiGlyphRanges());
         }
     }
 
-    ImFont* font = nullptr;
-
-    if (!resolved.empty() && access(resolved.c_str(), R_OK) == 0) {
-        ImFontConfig cfg;
-        cfg.Flags |= ImFontFlags_NoLoadError;
-        font = atlas->AddFontFromFileTTF(resolved.c_str(), clampedSize, &cfg, fizz::ui::getUiGlyphRanges());
+    // Tier 3: Scalable system font queried via Fontconfig
+    if (!font) {
+        std::string sysFont = resolveSystemFont();
+        if (!sysFont.empty() && access(sysFont.c_str(), R_OK) == 0) {
+            font = atlas->AddFontFromFileTTF(sysFont.c_str(), clampedSize, &cfg, fizz::ui::getUiGlyphRanges());
+        }
     }
 
+    // Tier 4: Dear ImGui built-in font
     if (!font) {
         font = atlas->AddFontDefault();
     }
@@ -599,7 +606,7 @@ bool renderAppearanceTab(FizzConfig& config, const AppearanceCallbacks& callback
             bool isSelected = (config.font_path == sf.path) ||
                               (config.font_path.empty() && !systemFonts.empty() && sf.path == systemFonts[0].path);
             std::string itemLabel = sf.familyName;
-            if (!sf.available && !sf.path.empty()) {
+            if (!sf.available) {
                 itemLabel += " (not found)";
             }
             if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {

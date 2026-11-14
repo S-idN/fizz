@@ -40,34 +40,157 @@ static const std::vector<std::string> kRelativeCandidates = {
     "usr/share/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
 };
 
-std::string resolveAssetFile(const std::string& relativePath, const std::string& customRoot) {
-    if (!customRoot.empty()) {
-        fs::path p = fs::path(customRoot) / relativePath;
+static bool tryAssetCandidate(const fs::path& p, std::string& out) {
+    if (p.empty()) return false;
+    std::error_code ec;
+    if (fs::is_regular_file(p, ec) || fs::is_symlink(p, ec)) {
         if (access(p.c_str(), R_OK) == 0) {
-            return p.lexically_normal().string();
+            out = p.lexically_normal().string();
+            return true;
         }
     }
-    if (access(relativePath.c_str(), R_OK) == 0) {
-        return fs::path(relativePath).lexically_normal().string();
+    return false;
+}
+
+static bool probeAssetDir(const fs::path& dir,
+                          const std::string& rel,
+                          const std::string& stripped,
+                          const std::string& withAssets,
+                          std::string& out) {
+    if (dir.empty()) return false;
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) return false;
+
+    if (dir.filename() == "assets") {
+        if (tryAssetCandidate(dir / stripped, out)) return true;
+        if (tryAssetCandidate(dir / rel, out)) return true;
+    } else {
+        if (tryAssetCandidate(dir / withAssets, out)) return true;
+        if (tryAssetCandidate(dir / rel, out)) return true;
+        if (tryAssetCandidate(dir / stripped, out)) return true;
     }
-    std::string parentRelative = "../" + relativePath;
-    if (access(parentRelative.c_str(), R_OK) == 0) {
-        return fs::path(parentRelative).lexically_normal().string();
+    return false;
+}
+
+std::string resolveAssetFile(const std::string& relativePath, const std::string& customRoot) {
+    if (relativePath.empty()) {
+        return "";
     }
+
+    std::string out;
+
+    // 1. Handle absolute paths
+    if (relativePath.front() == '/') {
+        if (!customRoot.empty()) {
+            fs::path p = fs::path(customRoot) / relativePath.substr(1);
+            if (tryAssetCandidate(p, out)) return out;
+        }
+        if (tryAssetCandidate(fs::path(relativePath), out)) return out;
+        return "";
+    }
+
+    // Normalize relative path and derive variants
+    std::string rel = fs::path(relativePath).lexically_normal().string();
+    std::string stripped;
+    std::string withAssets;
+    if (rel == "assets") {
+        stripped = "";
+        withAssets = "assets";
+    } else if (rel.rfind("assets/", 0) == 0) {
+        stripped = rel.substr(7);
+        withAssets = rel;
+    } else {
+        stripped = rel;
+        withAssets = "assets/" + rel;
+    }
+
+    // 2. Custom root probe (if specified)
+    if (!customRoot.empty()) {
+        fs::path cr(customRoot);
+        if (probeAssetDir(cr, rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / "usr" / "share" / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / "usr" / "share" / "fizz", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / "usr" / "local" / "share" / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(cr / ".local" / "share" / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (tryAssetCandidate(cr / rel, out)) return out;
+        if (tryAssetCandidate(cr / stripped, out)) return out;
+    }
+
+    // 3. FIZZ_DATA_DIR environment variable override
+    const char* envFizzData = std::getenv("FIZZ_DATA_DIR");
+    if (envFizzData && *envFizzData != '\0') {
+        fs::path p(envFizzData);
+        if (probeAssetDir(p, rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(p / "assets", rel, stripped, withAssets, out)) return out;
+        if (tryAssetCandidate(p / rel, out)) return out;
+        if (tryAssetCandidate(p / stripped, out)) return out;
+        // FIZZ_DATA_DIR is an explicit directory override
+        return "";
+    }
+
+    // 4. XDG_DATA_HOME environment variable
+    const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+    if (xdgDataHome && *xdgDataHome != '\0') {
+        fs::path p(xdgDataHome);
+        if (probeAssetDir(p / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(p / "fizz", rel, stripped, withAssets, out)) return out;
+    }
+
+    // 5. User FreeDesktop data dir (~/.local/share)
+    const char* home = std::getenv("HOME");
+    if (home && *home != '\0') {
+        fs::path p(home);
+        if (probeAssetDir(p / ".local" / "share" / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(p / ".local" / "share" / "fizz", rel, stripped, withAssets, out)) return out;
+    }
+
+    // 6. XDG_DATA_DIRS environment variable
+    const char* xdgDataDirs = std::getenv("XDG_DATA_DIRS");
+    if (xdgDataDirs && *xdgDataDirs != '\0') {
+        std::string s(xdgDataDirs);
+        size_t start = 0;
+        while (start < s.size()) {
+            size_t end = s.find(':', start);
+            if (end == std::string::npos) end = s.size();
+            std::string d = s.substr(start, end - start);
+            if (!d.empty()) {
+                fs::path p(d);
+                if (probeAssetDir(p / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+                if (probeAssetDir(p / "fizz", rel, stripped, withAssets, out)) return out;
+            }
+            start = end + 1;
+        }
+    }
+
+    // 7. Standard system data directories
+    if (probeAssetDir(fs::path("/usr/local/share/fizz/assets"), rel, stripped, withAssets, out)) return out;
+    if (probeAssetDir(fs::path("/usr/local/share/fizz"), rel, stripped, withAssets, out)) return out;
+    if (probeAssetDir(fs::path("/usr/share/fizz/assets"), rel, stripped, withAssets, out)) return out;
+    if (probeAssetDir(fs::path("/usr/share/fizz"), rel, stripped, withAssets, out)) return out;
+
+    // 8. Executable binary-relative paths
     char exePath[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
     if (len > 0) {
         exePath[len] = '\0';
-        fs::path dir = fs::path(exePath).parent_path();
-        fs::path candidate = dir / relativePath;
-        if (access(candidate.c_str(), R_OK) == 0) {
-            return candidate.lexically_normal().string();
-        }
-        candidate = dir.parent_path() / relativePath;
-        if (access(candidate.c_str(), R_OK) == 0) {
-            return candidate.lexically_normal().string();
-        }
+        fs::path exeDir = fs::path(exePath).parent_path();
+        if (probeAssetDir(exeDir / ".." / "share" / "fizz" / "assets", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(exeDir / ".." / "share" / "fizz", rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(exeDir, rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(exeDir.parent_path(), rel, stripped, withAssets, out)) return out;
+        if (probeAssetDir(exeDir / "assets", rel, stripped, withAssets, out)) return out;
     }
+
+    // 9. Working directory and relative fallbacks
+    if (probeAssetDir(fs::path("."), rel, stripped, withAssets, out)) return out;
+    if (probeAssetDir(fs::path(".."), rel, stripped, withAssets, out)) return out;
+    if (probeAssetDir(fs::path("../.."), rel, stripped, withAssets, out)) return out;
+    if (tryAssetCandidate(fs::path(rel), out)) return out;
+    if (tryAssetCandidate(fs::path("../" + rel), out)) return out;
+    if (tryAssetCandidate(fs::path("../../" + rel), out)) return out;
+
     return "";
 }
 

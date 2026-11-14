@@ -457,10 +457,13 @@ EOF
         [ -x "$HOME/.local/bin/fizz-search" ] || exit 10
         [ -x "$HOME/.local/bin/fizzd" ] || exit 11
         [ -f "$HOME/.config/systemd/user/fizzd.service" ] || exit 12
+        [ -f "$HOME/.local/share/fizz/assets/fonts/SpaceGrotesk-VariableFont_wght.ttf" ] || exit 15
+        [ -f "$HOME/.local/share/fizz/assets/icons/Font Awesome 7 Free-Solid-900.otf" ] || exit 16
 
         # 2. Idempotent re-installation
         "$INSTALL_SH" --no-hotkey
         [ -x "$HOME/.local/bin/fizz-search" ] || exit 20
+        [ -f "$HOME/.local/share/fizz/assets/fonts/SpaceGrotesk-VariableFont_wght.ttf" ] || exit 21
 
         # Create user config and cache
         mkdir -p "$HOME/.config/fizz"
@@ -472,6 +475,7 @@ EOF
         [ ! -f "$HOME/.local/bin/fizz-search" ] || exit 30
         [ ! -f "$HOME/.local/bin/fizzd" ] || exit 31
         [ ! -f "$HOME/.config/systemd/user/fizzd.service" ] || exit 32
+        [ ! -d "$HOME/.local/share/fizz/assets" ] || exit 35
         # Config and cache must be preserved!
         [ -f "$HOME/.config/fizz/fizz.conf" ] || exit 33
         [ -f "$HOME/.fizzLocalCache.bin" ] || exit 34
@@ -482,6 +486,7 @@ EOF
         [ ! -f "$HOME/.local/bin/fizz-search" ] || exit 40
         [ ! -d "$HOME/.config/fizz" ] || exit 41
         [ ! -f "$HOME/.fizzLocalCache.bin" ] || exit 42
+        [ ! -d "$HOME/.local/share/fizz" ] || exit 43
     )
     local sub_ret=$?
     if [ "$sub_ret" -eq 0 ]; then
@@ -685,6 +690,173 @@ SEOF
 
 if [ "$RUN_UNIT" = true ]; then
     test_systemd_service_template
+fi
+
+# -----------------------------------------------------------------------------
+# Seam 7: Asset Lifecycle (Install, Permissions, Overrides, Uninstall, Purge)
+# -----------------------------------------------------------------------------
+echo "--- Seam 7: Asset Lifecycle ---"
+
+test_asset_installation_default_user_dir() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    (
+        export HOME="$tmp_dir"
+        unset FIZZ_DATA_DIR XDG_DATA_HOME
+        source "$INSTALL_SH"
+        install_assets "$REPO_ROOT"
+    )
+
+    local target_font="$tmp_dir/.local/share/fizz/assets/fonts/SpaceGrotesk-VariableFont_wght.ttf"
+    local target_icon="$tmp_dir/.local/share/fizz/assets/icons/Font Awesome 7 Free-Solid-900.otf"
+
+    if [ -f "$target_font" ]; then
+        pass "install_assets installs Space Grotesk to ~/.local/share/fizz/assets"
+    else
+        fail "install_assets default user dir" "$target_font was not installed"
+    fi
+
+    if [ -f "$target_icon" ]; then
+        pass "install_assets installs Font Awesome icons to ~/.local/share/fizz/assets"
+    else
+        fail "install_assets default user dir" "$target_icon was not installed"
+    fi
+
+    # Check permission preservation
+    if [ -r "$target_font" ] && [ -r "$target_icon" ]; then
+        pass "install_assets preserves file read permissions"
+    else
+        fail "install_assets permissions" "Installed asset files are not readable"
+    fi
+
+    # Test uninstall_assets
+    (
+        export HOME="$tmp_dir"
+        unset FIZZ_DATA_DIR XDG_DATA_HOME
+        source "$INSTALL_SH"
+        uninstall_assets
+    )
+
+    if [ ! -d "$tmp_dir/.local/share/fizz/assets" ]; then
+        pass "uninstall_assets cleanly removes ~/.local/share/fizz/assets"
+    else
+        fail "uninstall_assets" "Asset directory was not removed"
+    fi
+
+    if [ ! -d "$tmp_dir/.local/share/fizz" ]; then
+        pass "uninstall_assets cleans up empty parent ~/.local/share/fizz"
+    else
+        fail "uninstall_assets parent cleanup" "Empty parent fizz dir remained"
+    fi
+
+    rm -rf "$tmp_dir"
+}
+
+test_asset_installation_fizz_data_dir_override() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local custom_dir="$tmp_dir/custom_fizz_assets"
+
+    (
+        export HOME="$tmp_dir"
+        export FIZZ_DATA_DIR="$custom_dir"
+        source "$INSTALL_SH"
+        install_assets "$REPO_ROOT"
+    )
+
+    local target_font="$custom_dir/fonts/SpaceGrotesk-VariableFont_wght.ttf"
+    if [ -f "$target_font" ]; then
+        pass "install_assets respects FIZZ_DATA_DIR environment variable override"
+    else
+        fail "FIZZ_DATA_DIR override" "$target_font was not installed in $custom_dir"
+    fi
+
+    (
+        export HOME="$tmp_dir"
+        export FIZZ_DATA_DIR="$custom_dir"
+        source "$INSTALL_SH"
+        uninstall_assets
+    )
+
+    if [ ! -d "$custom_dir" ]; then
+        pass "uninstall_assets cleans up custom FIZZ_DATA_DIR"
+    else
+        fail "uninstall_assets FIZZ_DATA_DIR" "$custom_dir was not removed"
+    fi
+
+    rm -rf "$tmp_dir"
+}
+
+test_asset_installation_xdg_data_home_override() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local xdg_dir="$tmp_dir/xdg_share"
+
+    (
+        export HOME="$tmp_dir"
+        export XDG_DATA_HOME="$xdg_dir"
+        unset FIZZ_DATA_DIR
+        source "$INSTALL_SH"
+        install_assets "$REPO_ROOT"
+    )
+
+    local target_font="$xdg_dir/fizz/assets/fonts/SpaceGrotesk-VariableFont_wght.ttf"
+    if [ -f "$target_font" ]; then
+        pass "install_assets respects XDG_DATA_HOME environment variable"
+    else
+        fail "XDG_DATA_HOME override" "$target_font was not installed in $xdg_dir/fizz/assets"
+    fi
+
+    (
+        export HOME="$tmp_dir"
+        export XDG_DATA_HOME="$xdg_dir"
+        unset FIZZ_DATA_DIR
+        source "$INSTALL_SH"
+        uninstall_assets
+    )
+
+    if [ ! -d "$xdg_dir/fizz/assets" ]; then
+        pass "uninstall_assets cleans up XDG_DATA_HOME asset directory"
+    else
+        fail "uninstall_assets XDG_DATA_HOME" "$xdg_dir/fizz/assets was not removed"
+    fi
+
+    rm -rf "$tmp_dir"
+}
+
+test_asset_system_data_dir_default() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local sys_dir
+    sys_dir=$(bash -c "
+        export HOME='$tmp_dir'
+        unset FIZZ_DATA_DIR XDG_DATA_HOME
+        export BIN_DIR='/usr/bin'
+        source '$INSTALL_SH'
+        get_data_dir
+    ")
+    assert_eq "/usr/share/fizz/assets" "$sys_dir" "get_data_dir defaults to /usr/share/fizz/assets when BIN_DIR=/usr/bin"
+
+    local local_sys_dir
+    local_sys_dir=$(bash -c "
+        export HOME='$tmp_dir'
+        unset FIZZ_DATA_DIR XDG_DATA_HOME
+        export BIN_DIR='/usr/local/bin'
+        source '$INSTALL_SH'
+        get_data_dir
+    ")
+    assert_eq "/usr/local/share/fizz/assets" "$local_sys_dir" "get_data_dir defaults to /usr/local/share/fizz/assets when BIN_DIR=/usr/local/bin"
+
+    rm -rf "$tmp_dir"
+}
+
+if [ "$RUN_UNIT" = true ]; then
+    test_asset_installation_default_user_dir
+    test_asset_installation_fizz_data_dir_override
+    test_asset_installation_xdg_data_home_override
+    test_asset_system_data_dir_default
 fi
 
 if [ "$FAILED" -ne 0 ]; then

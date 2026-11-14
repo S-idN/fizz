@@ -153,3 +153,4 @@ if(FIZZ_INSTALLER_TESTS)
 endif()
 
 install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)
+install(DIRECTORY assets/ DESTINATION share/fizz/assets)
