@@ -695,6 +695,260 @@ void test_action_buttons_dynamic_layout_and_degradation() {
     std::cout << "[PASS] test_action_buttons_dynamic_layout_and_degradation passed.\n";
 }
 
+void test_search_input_prompt_iconography_and_clean_degradation() {
+    std::cout << "[TEST] Running test_search_input_prompt_iconography_and_clean_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    UI_TEST_ASSERT(rebuilt);
+    UI_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    // 1. Icon-enabled search prompt indicator
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    UI_TEST_ASSERT(std::string(fizz::ui::getSearchPromptIndicator()) == ICON_FA_MAGNIFYING_GLASS);
+
+    // Geometry layout in icon-enabled mode
+    ImVec2 origin = {16.0f, 14.0f};
+    float width = 718.0f;
+    float height = 38.0f;
+
+    auto geomIcon = fizz::ui::calculateSearchPillGeometry(origin, width, height);
+    float promptIconWidth = ImGui::CalcTextSize(ICON_FA_MAGNIFYING_GLASS).x;
+    float expectedInputXIcon = geomIcon.promptPos.x + promptIconWidth + fizz::ui::Metrics::kPromptSpacing;
+    UI_TEST_ASSERT(nearEqual(geomIcon.inputPos.x, expectedInputXIcon, 0.5f));
+    UI_TEST_ASSERT(geomIcon.inputWidth > 0.0f);
+
+    // 2. Icon-suppressed mode (graceful degradation to ">")
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    UI_TEST_ASSERT(std::string(fizz::ui::getSearchPromptIndicator()) == ">");
+
+    auto geomDegraded = fizz::ui::calculateSearchPillGeometry(origin, width, height);
+    float promptDegradedWidth = ImGui::CalcTextSize(">").x;
+    float expectedInputXDegraded = geomDegraded.promptPos.x + promptDegradedWidth + fizz::ui::Metrics::kPromptSpacing;
+    UI_TEST_ASSERT(nearEqual(geomDegraded.inputPos.x, expectedInputXDegraded, 0.5f));
+    UI_TEST_ASSERT(geomDegraded.inputWidth > 0.0f);
+
+    // Input position should differ dynamically between icon and degraded modes if glyph widths differ
+    UI_TEST_ASSERT(geomIcon.promptPos.x == geomDegraded.promptPos.x);
+
+    // 3. Headless rendering of SearchPill in both modes
+    char buf[128] = "test query";
+    for (bool suppressed : {false, true}) {
+        fizz::ui::setIconFontSuppressedForTesting(suppressed);
+
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("search_pill_render_test", nullptr, ImGuiWindowFlags_NoDecoration);
+
+        bool changed = fizz::ui::renderSearchPill(buf, sizeof(buf), fizz::ui::kDefaultPlaceholderText, false);
+        UI_TEST_ASSERT(!changed);
+
+        ImGui::End();
+        ImGui::Render();
+    }
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_search_input_prompt_iconography_and_clean_degradation passed.\n";
+}
+
+void test_category_badge_iconography_and_clean_degradation() {
+    std::cout << "[TEST] Running test_category_badge_iconography_and_clean_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    UI_TEST_ASSERT(rebuilt);
+    UI_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    // 1. Icon-enabled category badge labels
+    fizz::ui::setIconFontSuppressedForTesting(false);
+
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("app")) == ICON_FA_WINDOW_MAXIMIZE " app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("untrusted-app")) == ICON_FA_TRIANGLE_EXCLAMATION " untrusted-app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("untrusted")) == ICON_FA_TRIANGLE_EXCLAMATION " untrusted-app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("exec")) == ICON_FA_TERMINAL " exec");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("code")) == ICON_FA_CODE " code");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("doc")) == ICON_FA_FILE_LINES " doc");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("folder")) == ICON_FA_FOLDER " folder");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("action")) == ICON_FA_BOLT " action");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("media")) == ICON_FA_PHOTO_FILM " media");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("image")) == ICON_FA_IMAGE " image");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("archive")) == ICON_FA_BOX_ARCHIVE " archive");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("text")) == ICON_FA_FILE_LINES " text");
+
+    // Path-based getCategoryBadge in icon-enabled mode
+    auto bExecIcon = fizz::ui::getCategoryBadge("/usr/bin/bash", ExecState::Executable);
+    UI_TEST_ASSERT(bExecIcon.label == ICON_FA_TERMINAL " exec");
+
+    auto bCodeIcon = fizz::ui::getCategoryBadge("/home/user/project/main.cpp", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bCodeIcon.label == ICON_FA_CODE " code");
+
+    auto bDocIcon = fizz::ui::getCategoryBadge("/home/user/notes/report.pdf", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bDocIcon.label == ICON_FA_FILE_LINES " doc");
+
+    auto bMediaIcon = fizz::ui::getCategoryBadge("/home/user/music/song.mp3", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bMediaIcon.label == ICON_FA_PHOTO_FILM " media");
+
+    auto bImageIcon = fizz::ui::getCategoryBadge("/home/user/pictures/photo.png", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bImageIcon.label == ICON_FA_IMAGE " image");
+
+    auto bArchiveIcon = fizz::ui::getCategoryBadge("/home/user/backups/data.tar.gz", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bArchiveIcon.label == ICON_FA_BOX_ARCHIVE " archive");
+
+    auto bTextIcon = fizz::ui::getCategoryBadge("/home/user/notes.txt", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bTextIcon.label == ICON_FA_FILE_LINES " text");
+
+    auto bFolderIcon = fizz::ui::getCategoryBadge("/home/user/documents/", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bFolderIcon.label == ICON_FA_FOLDER " folder");
+
+    auto bActionIcon = fizz::ui::getCategoryBadge("fizz:settings", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bActionIcon.label == ICON_FA_BOLT " action");
+
+    auto bAppIcon = fizz::ui::getCategoryBadge("/usr/share/applications/firefox.desktop", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bAppIcon.label == ICON_FA_WINDOW_MAXIMIZE " app");
+
+    auto bUntrustedIcon = fizz::ui::getCategoryBadge("/tmp/untrusted.desktop", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bUntrustedIcon.label == ICON_FA_TRIANGLE_EXCLAMATION " untrusted-app");
+
+    // 2. Icon-suppressed mode (clean text degradation)
+    fizz::ui::setIconFontSuppressedForTesting(true);
+
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("app")) == "app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("untrusted-app")) == "untrusted-app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("untrusted")) == "untrusted-app");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("exec")) == "exec");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("code")) == "code");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("doc")) == "doc");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("folder")) == "folder");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("action")) == "action");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("media")) == "media");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("image")) == "image");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("archive")) == "archive");
+    UI_TEST_ASSERT(std::string(fizz::ui::getCategoryBadgeLabel("text")) == "text");
+
+    // Path-based getCategoryBadge in degraded mode
+    auto bExecDegraded = fizz::ui::getCategoryBadge("/usr/bin/bash", ExecState::Executable);
+    UI_TEST_ASSERT(bExecDegraded.label == "exec");
+
+    auto bCodeDegraded = fizz::ui::getCategoryBadge("/home/user/project/main.cpp", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bCodeDegraded.label == "code");
+
+    auto bDocDegraded = fizz::ui::getCategoryBadge("/home/user/notes/report.pdf", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bDocDegraded.label == "doc");
+
+    auto bMediaDegraded = fizz::ui::getCategoryBadge("/home/user/music/song.mp3", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bMediaDegraded.label == "media");
+
+    auto bImageDegraded = fizz::ui::getCategoryBadge("/home/user/pictures/photo.png", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bImageDegraded.label == "image");
+
+    auto bArchiveDegraded = fizz::ui::getCategoryBadge("/home/user/backups/data.tar.gz", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bArchiveDegraded.label == "archive");
+
+    auto bTextDegraded = fizz::ui::getCategoryBadge("/home/user/notes.txt", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bTextDegraded.label == "text");
+
+    auto bFolderDegraded = fizz::ui::getCategoryBadge("/home/user/documents/", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bFolderDegraded.label == "folder");
+
+    auto bActionDegraded = fizz::ui::getCategoryBadge("fizz:settings", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bActionDegraded.label == "action");
+
+    auto bAppDegraded = fizz::ui::getCategoryBadge("/usr/share/applications/firefox.desktop", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bAppDegraded.label == "app");
+
+    auto bUntrustedDegraded = fizz::ui::getCategoryBadge("/tmp/untrusted.desktop", ExecState::NotExecutable);
+    UI_TEST_ASSERT(bUntrustedDegraded.label == "untrusted-app");
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_category_badge_iconography_and_clean_degradation passed.\n";
+}
+
+void test_badge_geometry_and_row_layout_with_icons_and_degradation() {
+    std::cout << "[TEST] Running test_badge_geometry_and_row_layout_with_icons_and_degradation...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    bool rebuilt = fizz::ui::rebuildFontAtlas("", 16.0f);
+    UI_TEST_ASSERT(rebuilt);
+    UI_TEST_ASSERT(fizz::ui::isIconFontAvailable());
+
+    ImVec2 rowMin = {0.0f, 50.0f};
+    ImVec2 rowMax = {750.0f, 74.0f};
+    float fontSize = 16.0f;
+
+    // 1. Icon-enabled mode
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    auto badgeIcon = fizz::ui::getCategoryBadge("/usr/bin/bash", ExecState::Executable);
+    float textWIcon = ImGui::CalcTextSize(badgeIcon.label.data(), badgeIcon.label.data() + badgeIcon.label.size()).x;
+    auto geomIcon = fizz::ui::calculateBadgeGeometry(rowMin, rowMax, textWIcon, fontSize);
+
+    // 2. Degraded text-only mode
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    auto badgeDegraded = fizz::ui::getCategoryBadge("/usr/bin/bash", ExecState::Executable);
+    float textWDegraded = ImGui::CalcTextSize(badgeDegraded.label.data(), badgeDegraded.label.data() + badgeDegraded.label.size()).x;
+    auto geomDegraded = fizz::ui::calculateBadgeGeometry(rowMin, rowMax, textWDegraded, fontSize);
+
+    // Badge geometry expands for icon and shrinks for degraded
+    UI_TEST_ASSERT(geomIcon.width > geomDegraded.width);
+    UI_TEST_ASSERT(nearEqual(geomIcon.width - geomDegraded.width, textWIcon - textWDegraded));
+
+    // Both retain identical rounding (half badge height) and padding
+    UI_TEST_ASSERT(nearEqual(geomIcon.rounding, 9.0f));
+    UI_TEST_ASSERT(nearEqual(geomDegraded.rounding, 9.0f));
+    UI_TEST_ASSERT(nearEqual(geomIcon.max.x - geomIcon.min.x, textWIcon + 2.0f * fizz::ui::Metrics::kBadgePaddingX));
+    UI_TEST_ASSERT(nearEqual(geomDegraded.max.x - geomDegraded.min.x, textWDegraded + 2.0f * fizz::ui::Metrics::kBadgePaddingX));
+
+    // 3. Row layout respects expanded badge width smoothly
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    auto rowLayoutIcon = fizz::ui::calculateRowLayout(rowMin, rowMax, "bash", "/usr/bin", badgeIcon, fontSize);
+    UI_TEST_ASSERT(rowLayoutIcon.textRightLimit < rowLayoutIcon.badgeGeom.min.x);
+    UI_TEST_ASSERT(nearEqual(rowLayoutIcon.textRightLimit, rowLayoutIcon.badgeGeom.min.x - fizz::ui::Metrics::kBadgeSpacing));
+
+    fizz::ui::setIconFontSuppressedForTesting(true);
+    auto rowLayoutDegraded = fizz::ui::calculateRowLayout(rowMin, rowMax, "bash", "/usr/bin", badgeDegraded, fontSize);
+    UI_TEST_ASSERT(rowLayoutDegraded.textRightLimit < rowLayoutDegraded.badgeGeom.min.x);
+    UI_TEST_ASSERT(nearEqual(rowLayoutDegraded.textRightLimit, rowLayoutDegraded.badgeGeom.min.x - fizz::ui::Metrics::kBadgeSpacing));
+
+    // In degraded mode, badge is smaller, so textRightLimit extends further to the right
+    UI_TEST_ASSERT(rowLayoutDegraded.textRightLimit > rowLayoutIcon.textRightLimit);
+
+    // 4. Headless rendering of RowContent in both modes
+    for (bool suppressed : {false, true}) {
+        fizz::ui::setIconFontSuppressedForTesting(suppressed);
+        auto badge = fizz::ui::getCategoryBadge("/usr/bin/bash", ExecState::Executable);
+
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("row_content_render_test", nullptr, ImGuiWindowFlags_NoDecoration);
+
+        auto layout = fizz::ui::calculateRowLayout(rowMin, rowMax, "bash", "/usr/bin", badge, fontSize);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        fizz::ui::renderRowContent(dl, layout, "bash", badge);
+
+        ImGui::End();
+        ImGui::Render();
+    }
+
+    fizz::ui::setIconFontSuppressedForTesting(false);
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_badge_geometry_and_row_layout_with_icons_and_degradation passed.\n";
+}
+
 void run_search_ui_tests() {
     test_category_badges();
     test_badge_geometry();
@@ -708,4 +962,7 @@ void run_search_ui_tests() {
     test_settings_tab_iconography_and_clean_degradation();
     test_view_header_dynamic_layout_and_degradation();
     test_action_buttons_dynamic_layout_and_degradation();
+    test_search_input_prompt_iconography_and_clean_degradation();
+    test_category_badge_iconography_and_clean_degradation();
+    test_badge_geometry_and_row_layout_with_icons_and_degradation();
 }

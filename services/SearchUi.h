@@ -26,6 +26,13 @@ const char* getCacheTabLabel();
 // Return navigation button label with clean text degradation
 const char* getViewHeaderReturnLabel();
 
+// Search input prompt indicator with clean text degradation
+const char* getSearchPromptIndicator();
+inline const char* getSearchPromptLabel() { return getSearchPromptIndicator(); }
+
+// Category badge label formatting helper with clean text degradation
+const char* getCategoryBadgeLabel(std::string_view category);
+
 // Action button labels with clean text degradation
 const char* getRebuildCacheButtonLabel();
 const char* getResetDefaultsButtonLabel();
@@ -184,7 +191,39 @@ ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
                                              float fontSize = 16.0f,
                                              std::string_view backLabel = "");
 
-// Calculates geometry for the integrated search pill container, prompt, and input box
+// Calculates geometry for the integrated search pill container, prompt, and input box dynamically
+template<typename MeasureFn>
+SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height,
+                                              MeasureFn&& measureFn, float fontSize = 16.0f) {
+    float pillW = std::max(0.0f, width);
+    float pillH = std::max(0.0f, height);
+    ImVec2 pillMin = origin;
+    ImVec2 pillMax = {origin.x + pillW, origin.y + pillH};
+
+    float promptX = pillMin.x + Metrics::kSearchPillPaddingX;
+    float promptY = pillMin.y + (pillH - fontSize) * 0.5f;
+
+    const char* prompt = getSearchPromptIndicator();
+    float promptW = measureFn(prompt);
+    if (promptW <= 0.0f) {
+        promptW = Metrics::kPromptGlyphWidth;
+    }
+
+    float inputX = promptX + promptW + Metrics::kPromptSpacing;
+    float inputY = pillMin.y;
+    float inputW = std::max(0.0f, pillMax.x - Metrics::kSearchPillPaddingX - inputX);
+
+    return SearchPillGeometry{
+        pillMin,
+        pillMax,
+        Metrics::kSearchPillRounding,
+        ImVec2(promptX, promptY),
+        ImVec2(inputX, inputY),
+        inputW
+    };
+}
+
+// Calculates geometry for the integrated search pill container, prompt, and input box using default text measurement
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize = 16.0f);
 
 // Formats search hit count string (e.g. "0 hits", "1 hit", "12 hits")
