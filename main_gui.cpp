@@ -101,48 +101,25 @@ static void centerWindowOnWorkarea(GLFWwindow* window, int width, int height) {
 
     int monCount = 0;
     GLFWmonitor** monitors = glfwGetMonitors(&monCount);
-    GLFWmonitor* activeMonitor = nullptr;
+    if (!monitors || monCount <= 0) return;
 
-    if (monitors && monCount > 0) {
-        int winX = 0, winY = 0;
-        glfwGetWindowPos(window, &winX, &winY);
-        int centerX = winX + width / 2;
-        int centerY = winY + height / 2;
-
-        std::vector<fizz::ui::MonitorWorkArea> workAreas;
-        workAreas.reserve(monCount);
-        for (int i = 0; i < monCount; ++i) {
-            int mx = 0, my = 0, mw = 0, mh = 0;
-            glfwGetMonitorWorkarea(monitors[i], &mx, &my, &mw, &mh);
-            workAreas.push_back({mx, my, mw, mh});
-        }
-
-        int activeIdx = fizz::ui::findActiveMonitorIndex(workAreas, centerX, centerY);
-        if (activeIdx >= 0 && activeIdx < monCount) {
-            activeMonitor = monitors[activeIdx];
-        } else {
-            activeMonitor = glfwGetPrimaryMonitor();
-            if (!activeMonitor) {
-                activeMonitor = monitors[0];
-            }
-        }
-    } else {
-        activeMonitor = glfwGetPrimaryMonitor();
+    std::vector<fizz::ui::MonitorWorkArea> workAreas;
+    workAreas.reserve(monCount);
+    for (int i = 0; i < monCount; ++i) {
+        int mx = 0, my = 0, mw = 0, mh = 0;
+        glfwGetMonitorWorkarea(monitors[i], &mx, &my, &mw, &mh);
+        workAreas.push_back({mx, my, mw, mh});
     }
 
     int currentX = 0, currentY = 0;
     glfwGetWindowPos(window, &currentX, &currentY);
-    fizz::ui::WindowPosition fallbackPos{currentX, currentY};
+    int currentW = 0, currentH = 0;
+    glfwGetWindowSize(window, &currentW, &currentH);
 
-    if (activeMonitor) {
-        int workX = 0, workY = 0, workW = 0, workH = 0;
-        glfwGetMonitorWorkarea(activeMonitor, &workX, &workY, &workW, &workH);
-        fizz::ui::MonitorWorkArea workArea{workX, workY, workW, workH};
+    auto result = fizz::ui::calculateResizeCentering(
+        workAreas, {currentX, currentY}, currentW, currentH, width, height);
 
-        fizz::ui::WindowPosition target = fizz::ui::calculateCenteredWindowPos(
-            workArea, width, height, fallbackPos);
-        glfwSetWindowPos(window, target.x, target.y);
-    }
+    glfwSetWindowPos(window, result.position.x, result.position.y);
 }
 
 int main() {
@@ -227,6 +204,7 @@ int main() {
 
     fizz::ui::AppearanceCallbacks appearanceCallbacks;
     appearanceCallbacks.onWindowResize = [window](int w, int h) {
+        centerWindowOnWorkarea(window, w, h);
         glfwSetWindowSize(window, w, h);
         glfwSetWindowSizeLimits(window, w, h, w, h);
         centerWindowOnWorkarea(window, w, h);
