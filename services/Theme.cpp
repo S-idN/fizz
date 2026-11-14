@@ -36,21 +36,70 @@ IndicatorGeometry calculateIndicatorGeometry(const ImVec2& itemMin, const ImVec2
     };
 }
 
-ImVec4 getAccentColor(std::string_view accentName) {
+std::string normalizeAccent(std::string_view accentName) {
     std::string lower = toLower(accentName);
-    if (lower == "emerald" || lower == "green") {
-        return Accents::kEmerald;
+    if (lower == "blue" || lower == "adwaita blue") {
+        return "blue";
+    }
+    if (lower == "emerald" || lower == "green" || lower == "emerald green") {
+        return "emerald";
     }
     if (lower == "purple") {
-        return Accents::kPurple;
+        return "purple";
     }
-    if (lower == "amber" || lower == "orange") {
-        return Accents::kAmber;
+    if (lower == "amber") {
+        return "amber";
     }
     if (lower == "crimson" || lower == "red") {
+        return "crimson";
+    }
+    if (lower == "rose" || lower == "coral" || lower == "rose / coral" || lower == "rose/coral") {
+        return "rose";
+    }
+    if (lower == "indigo" || lower == "electric indigo") {
+        return "indigo";
+    }
+    if (lower == "cyan" || lower == "nord cyan") {
+        return "cyan";
+    }
+    if (lower == "sunset" || lower == "orange" || lower == "sunset orange") {
+        return "sunset";
+    }
+    if (lower == "lime" || lower == "neon lime") {
+        return "lime";
+    }
+    return "blue";
+}
+
+ImVec4 getAccentColor(std::string_view accentName) {
+    std::string norm = normalizeAccent(accentName);
+    if (norm == "emerald") {
+        return Accents::kEmerald;
+    }
+    if (norm == "purple") {
+        return Accents::kPurple;
+    }
+    if (norm == "amber") {
+        return Accents::kAmber;
+    }
+    if (norm == "crimson") {
         return Accents::kCrimson;
     }
-    // Default and "blue"
+    if (norm == "rose") {
+        return Accents::kRose;
+    }
+    if (norm == "indigo") {
+        return Accents::kIndigo;
+    }
+    if (norm == "cyan") {
+        return Accents::kCyan;
+    }
+    if (norm == "sunset") {
+        return Accents::kSunset;
+    }
+    if (norm == "lime") {
+        return Accents::kLime;
+    }
     return Accents::kBlue;
 }
 

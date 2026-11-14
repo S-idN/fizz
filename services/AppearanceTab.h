@@ -79,8 +79,8 @@ struct ThemeOption {
 
 // Information about a curated accent palette choice
 struct CuratedAccent {
-    std::string id;          // "blue", "emerald", "purple", "amber", "crimson"
-    std::string displayName; // "Adwaita Blue", "Emerald Green", "Purple", "Amber", "Crimson"
+    std::string id;          // "blue", "emerald", "purple", "amber", "crimson", "rose", "indigo", "cyan", "sunset", "lime"
+    std::string displayName; // e.g. "Adwaita Blue", "Rose / Coral", etc.
     ImVec4 color;            // RGBA color
 };
 

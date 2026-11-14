@@ -282,26 +282,18 @@ const std::vector<CuratedAccent>& getCuratedAccents() {
         {"emerald", "Emerald Green", theme::Accents::kEmerald},
         {"purple", "Purple", theme::Accents::kPurple},
         {"amber", "Amber", theme::Accents::kAmber},
-        {"crimson", "Crimson", theme::Accents::kCrimson}
+        {"crimson", "Crimson", theme::Accents::kCrimson},
+        {"rose", "Rose / Coral", theme::Accents::kRose},
+        {"indigo", "Electric Indigo", theme::Accents::kIndigo},
+        {"cyan", "Nord Cyan", theme::Accents::kCyan},
+        {"sunset", "Sunset Orange", theme::Accents::kSunset},
+        {"lime", "Neon Lime", theme::Accents::kLime}
     };
     return s_accents;
 }
 
 static std::string normalizeAccentId(std::string_view accentId) {
-    std::string lower = toLower(accentId);
-    if (lower == "emerald" || lower == "green") {
-        return "emerald";
-    }
-    if (lower == "purple") {
-        return "purple";
-    }
-    if (lower == "amber" || lower == "orange") {
-        return "amber";
-    }
-    if (lower == "crimson" || lower == "red") {
-        return "crimson";
-    }
-    return "blue";
+    return theme::normalizeAccent(accentId);
 }
 
 bool selectTheme(FizzConfig& config, std::string_view themeId, ImGuiStyle* style) {

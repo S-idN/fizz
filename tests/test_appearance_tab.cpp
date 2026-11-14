@@ -88,7 +88,7 @@ void test_appearance_curated_accent_palette() {
     std::cout << "[TEST] Running test_appearance_curated_accent_palette...\n";
 
     const auto& accents = fizz::ui::getCuratedAccents();
-    APPEARANCE_TEST_ASSERT(accents.size() == 5);
+    APPEARANCE_TEST_ASSERT(accents.size() == 10);
 
     // 1. Blue (Adwaita Blue)
     APPEARANCE_TEST_ASSERT(accents[0].id == "blue");
@@ -115,17 +115,52 @@ void test_appearance_curated_accent_palette() {
     APPEARANCE_TEST_ASSERT(accents[4].displayName == "Crimson");
     APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[4].color, fizz::theme::Accents::kCrimson));
 
+    // 6. Rose / Coral
+    APPEARANCE_TEST_ASSERT(accents[5].id == "rose");
+    APPEARANCE_TEST_ASSERT(accents[5].displayName == "Rose / Coral");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[5].color, fizz::theme::Accents::kRose));
+
+    // 7. Electric Indigo
+    APPEARANCE_TEST_ASSERT(accents[6].id == "indigo");
+    APPEARANCE_TEST_ASSERT(accents[6].displayName == "Electric Indigo");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[6].color, fizz::theme::Accents::kIndigo));
+
+    // 8. Nord Cyan
+    APPEARANCE_TEST_ASSERT(accents[7].id == "cyan");
+    APPEARANCE_TEST_ASSERT(accents[7].displayName == "Nord Cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[7].color, fizz::theme::Accents::kCyan));
+
+    // 9. Sunset Orange
+    APPEARANCE_TEST_ASSERT(accents[8].id == "sunset");
+    APPEARANCE_TEST_ASSERT(accents[8].displayName == "Sunset Orange");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[8].color, fizz::theme::Accents::kSunset));
+
+    // 10. Neon Lime
+    APPEARANCE_TEST_ASSERT(accents[9].id == "lime");
+    APPEARANCE_TEST_ASSERT(accents[9].displayName == "Neon Lime");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(accents[9].color, fizz::theme::Accents::kLime));
+
     // Verify individual color calculations & lookups via getAccentColor
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("blue"), fizz::theme::Accents::kBlue));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("emerald"), fizz::theme::Accents::kEmerald));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("purple"), fizz::theme::Accents::kPurple));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("amber"), fizz::theme::Accents::kAmber));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("crimson"), fizz::theme::Accents::kCrimson));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("rose"), fizz::theme::Accents::kRose));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("indigo"), fizz::theme::Accents::kIndigo));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("cyan"), fizz::theme::Accents::kCyan));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("lime"), fizz::theme::Accents::kLime));
 
     // Aliases
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("green"), fizz::theme::Accents::kEmerald));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("red"), fizz::theme::Accents::kCrimson));
-    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("orange"), fizz::theme::Accents::kAmber));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("coral"), fizz::theme::Accents::kRose));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("electric indigo"), fizz::theme::Accents::kIndigo));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("nord cyan"), fizz::theme::Accents::kCyan));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("orange"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("sunset orange"), fizz::theme::Accents::kSunset));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("neon lime"), fizz::theme::Accents::kLime));
 
     // Fallback for unrecognized accent defaults to Adwaita Blue
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getAccentColor("invalid_accent"), fizz::theme::Accents::kBlue));
@@ -176,6 +211,40 @@ void test_appearance_live_imgui_style_application() {
     APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_WindowBg], fizz::theme::LightPalette::kBg));
     APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCrimson));
 
+    // Live update to Rose (and alias coral)
+    fizz::ui::selectAccent(config, "rose", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "rose");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kRose, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kRose));
+    fizz::ui::selectAccent(config, "coral", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "rose");
+
+    // Live update to Indigo (and alias electric indigo)
+    fizz::ui::selectAccent(config, "electric indigo", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "indigo");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kIndigo, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kIndigo));
+
+    // Live update to Cyan (and alias nord cyan)
+    fizz::ui::selectAccent(config, "nord cyan", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kCyan, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCyan));
+
+    // Live update to Sunset (and aliases orange, sunset orange)
+    fizz::ui::selectAccent(config, "orange", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "sunset");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kSunset, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kSunset));
+    fizz::ui::selectAccent(config, "sunset orange", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "sunset");
+
+    // Live update to Lime (and alias neon lime)
+    fizz::ui::selectAccent(config, "neon lime", &style);
+    APPEARANCE_TEST_ASSERT(config.accent == "lime");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(style.Colors[ImGuiCol_Header], fizz::theme::withAlpha(fizz::theme::Accents::kLime, 0.20f)));
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kLime));
+
     std::cout << "[PASS] test_appearance_live_imgui_style_application passed.\n";
 }
 
@@ -224,6 +293,19 @@ void test_appearance_atomic_config_persistence() {
     loaded = loadConfig(confPath.string());
     APPEARANCE_TEST_ASSERT(loaded.theme == "dark");
     APPEARANCE_TEST_ASSERT(loaded.accent == "crimson");
+
+    // 4. Changing to new accents (Sunset, Lime, Rose) persists atomically
+    fizz::ui::selectAccent(config, "sunset", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "sunset");
+
+    fizz::ui::selectAccent(config, "lime", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "lime");
+
+    fizz::ui::selectAccent(config, "rose", &style);
+    loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "rose");
 
     // Cleanup
     setConfigPath("");
