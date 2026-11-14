@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <set>
 #include <filesystem>
 #include <fstream>
 #include <unistd.h>
@@ -911,6 +912,212 @@ void test_appearance_window_centering_and_workarea() {
     std::cout << "[PASS] test_appearance_window_centering_and_workarea passed.\n";
 }
 
+void test_appearance_horizontal_accent_swatches() {
+    std::cout << "[TEST] Running test_appearance_horizontal_accent_swatches...\n";
+
+    fs::path tempDir = fs::temp_directory_path() / "fizz_test_swatches";
+    std::error_code ec;
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir, ec);
+    chmod(tempDir.c_str(), 0700);
+
+    fs::path confPath = tempDir / "fizz.conf";
+    setConfigPath(confPath.string());
+
+    FizzConfig config = FizzConfig::defaults();
+    config.theme = "dark";
+    config.accent = "blue";
+    bool saved = saveConfig(config);
+    APPEARANCE_TEST_ASSERT(saved);
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    // Frame 1: Render appearance tab with accent = "blue"
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    bool modified = fizz::ui::renderAppearanceTab(config);
+    APPEARANCE_TEST_ASSERT(!modified);
+
+    ImGui::End();
+    ImGui::Render();
+
+    ImDrawData* drawData = ImGui::GetDrawData();
+    APPEARANCE_TEST_ASSERT(drawData != nullptr);
+    APPEARANCE_TEST_ASSERT(drawData->CmdListsCount > 0);
+
+    const auto& accents = fizz::ui::getCuratedAccents();
+    APPEARANCE_TEST_ASSERT(accents.size() == 10);
+
+    // Collect bounding boxes of the 10 swatches from the draw list
+    struct SwatchBounds {
+        float minX = 1e9f;
+        float minY = 1e9f;
+        float maxX = -1e9f;
+        float maxY = -1e9f;
+        bool found = false;
+    };
+    std::vector<SwatchBounds> swatchBoxes(accents.size());
+
+    ImDrawList* mainDl = drawData->CmdLists[0];
+    ImU32 emeraldCol = ImGui::GetColorU32(accents[1].color);
+    float swatchRowY = 0.0f;
+    for (int i = 0; i < mainDl->VtxBuffer.Size; ++i) {
+        if (mainDl->VtxBuffer[i].col == emeraldCol) {
+            swatchRowY = mainDl->VtxBuffer[i].pos.y;
+            break;
+        }
+    }
+    APPEARANCE_TEST_ASSERT(swatchRowY > 0.0f);
+
+    for (size_t a = 0; a < accents.size(); ++a) {
+        ImU32 targetCol = ImGui::GetColorU32(accents[a].color);
+        for (int i = 0; i < mainDl->VtxBuffer.Size; ++i) {
+            const auto& v = mainDl->VtxBuffer[i];
+            if (v.col == targetCol && v.pos.y >= swatchRowY - 1.0f && v.pos.y <= swatchRowY + 28.0f) {
+                swatchBoxes[a].minX = std::min(swatchBoxes[a].minX, v.pos.x);
+                swatchBoxes[a].minY = std::min(swatchBoxes[a].minY, v.pos.y);
+                swatchBoxes[a].maxX = std::max(swatchBoxes[a].maxX, v.pos.x);
+                swatchBoxes[a].maxY = std::max(swatchBoxes[a].maxY, v.pos.y);
+                swatchBoxes[a].found = true;
+            }
+        }
+    }
+
+    // 1. Verify all 10 swatches were found and render in a single horizontal row
+    float commonY = swatchBoxes[0].minY;
+    for (size_t a = 0; a < accents.size(); ++a) {
+        APPEARANCE_TEST_ASSERT(swatchBoxes[a].found);
+        float w = swatchBoxes[a].maxX - swatchBoxes[a].minX;
+        float h = swatchBoxes[a].maxY - swatchBoxes[a].minY;
+
+        // Swatch tokens must be approx 24-28px
+        APPEARANCE_TEST_ASSERT(w >= 24.0f && w <= 28.0f);
+        APPEARANCE_TEST_ASSERT(h >= 24.0f && h <= 28.0f);
+
+        // All 10 swatches must be on the EXACT SAME horizontal baseline (SameLine)
+        APPEARANCE_TEST_ASSERT(nearEqual(swatchBoxes[a].minY, commonY, 1.0f));
+
+        // Horizontal ordering: each swatch must be strictly to the right of the previous
+        if (a > 0) {
+            APPEARANCE_TEST_ASSERT(swatchBoxes[a].minX > swatchBoxes[a - 1].maxX);
+        }
+    }
+
+    // Swatches must fit comfortably within the 750px window
+    APPEARANCE_TEST_ASSERT(swatchBoxes.back().maxX < 750.0f);
+
+    // 2. Test Hover: Hover over Nord Cyan (index 7) displays a tooltip
+    size_t cyanIndex = 7;
+    APPEARANCE_TEST_ASSERT(accents[cyanIndex].id == "cyan");
+    float cyanCenterX = (swatchBoxes[cyanIndex].minX + swatchBoxes[cyanIndex].maxX) * 0.5f;
+    float cyanCenterY = (swatchBoxes[cyanIndex].minY + swatchBoxes[cyanIndex].maxY) * 0.5f;
+
+    io.AddMousePosEvent(cyanCenterX, cyanCenterY);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    ImGui::LogToClipboard();
+    fizz::ui::renderAppearanceTab(config);
+    ImGui::LogFinish();
+    std::string hoverClip = ImGui::GetClipboardText() ? ImGui::GetClipboardText() : "";
+    APPEARANCE_TEST_ASSERT(hoverClip.find("Nord Cyan") != std::string::npos);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // 3. Test Click: Clicking the swatch activates that accent live and persists to fizz.conf
+    // Frame 3a: Mouse down on Nord Cyan
+    io.AddMouseButtonEvent(0, true);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    fizz::ui::renderAppearanceTab(config);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Frame 3b: Mouse up on Nord Cyan -> triggers button click
+    io.AddMouseButtonEvent(0, false);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    bool clickModified = fizz::ui::renderAppearanceTab(config);
+    APPEARANCE_TEST_ASSERT(clickModified);
+    APPEARANCE_TEST_ASSERT(config.accent == "cyan");
+    APPEARANCE_TEST_ASSERT(vec4NearEqual(fizz::theme::getActiveAccent(), fizz::theme::Accents::kCyan));
+
+    ImGui::End();
+    ImGui::Render();
+
+    // Verify atomic disk persistence
+    FizzConfig loaded = loadConfig(confPath.string());
+    APPEARANCE_TEST_ASSERT(loaded.accent == "cyan");
+
+    // Frame 4: Render next frame with active selection live
+    // Move mouse away so hover highlight doesn't interfere
+    io.AddMousePosEvent(-1000.0f, -1000.0f);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("settings_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    fizz::ui::renderAppearanceTab(config);
+
+    ImGui::End();
+    ImGui::Render();
+
+    // 4. Test active contrast ring/border on the currently selected swatch
+    // The active swatch has a border outline drawn with ImGuiCol_Text around its bounds
+    ImDrawData* clickDrawData = ImGui::GetDrawData();
+    ImDrawList* activeDl = clickDrawData->CmdLists[0];
+    ImU32 textColor = ImGui::GetColorU32(ImGuiCol_Text);
+
+    bool hasContrastBorder = false;
+    for (int i = 0; i < activeDl->VtxBuffer.Size; ++i) {
+        const auto& v = activeDl->VtxBuffer[i];
+        if (v.col == textColor) {
+            // Check if vertex is on or very close to the active swatch bounding box
+            if (v.pos.x >= swatchBoxes[cyanIndex].minX - 2.0f &&
+                v.pos.x <= swatchBoxes[cyanIndex].maxX + 2.0f &&
+                v.pos.y >= swatchBoxes[cyanIndex].minY - 2.0f &&
+                v.pos.y <= swatchBoxes[cyanIndex].maxY + 2.0f) {
+                hasContrastBorder = true;
+                break;
+            }
+        }
+    }
+    APPEARANCE_TEST_ASSERT(hasContrastBorder);
+
+    // Cleanup
+    ImGui::DestroyContext(ctx);
+    setConfigPath("");
+    fs::remove_all(tempDir, ec);
+
+    std::cout << "[PASS] test_appearance_horizontal_accent_swatches passed.\n";
+}
+
 void test_appearance_window_size_presets() {
     std::cout << "[TEST] Running test_appearance_window_size_presets...\n";
 
@@ -1275,4 +1482,5 @@ void run_appearance_tab_tests() {
     test_appearance_window_centering_and_workarea();
     test_settings_tab_order_and_clean_footer();
     test_appearance_font_selection_via_combo_box_and_no_custom_input();
+    test_appearance_horizontal_accent_swatches();
 }
