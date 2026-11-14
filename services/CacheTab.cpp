@@ -444,7 +444,7 @@ void CacheTab::render(FizzConfig& config) {
     CacheDiagnostics diag = getCacheDiagnostics(config.binary_cache_path);
 
     ImGui::Spacing();
-    ImGui::TextColored(fizz::theme::Palette::kAccent, "Active Binary Cache Diagnostics");
+    ImGui::TextColored(fizz::theme::getActiveAccent(), "Active Binary Cache Diagnostics");
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -465,9 +465,9 @@ void CacheTab::render(FizzConfig& config) {
         ImGui::EndDisabled();
 
         ImGui::SameLine();
-        renderSpinner(8.0f, 2.5f, ImGui::GetColorU32(fizz::theme::Palette::kAccent));
+        renderSpinner(8.0f, 2.5f, ImGui::GetColorU32(fizz::theme::getActiveAccent()));
         ImGui::SameLine();
-        ImGui::TextColored(fizz::theme::Palette::kAccent, "Rebuilding index in background...");
+        ImGui::TextColored(fizz::theme::getActiveAccent(), "Rebuilding index in background...");
     } else {
         if (ImGui::Button("Rebuild Cache##action", {120.0f, 0})) {
             triggerRebuild(config);
@@ -482,13 +482,16 @@ void CacheTab::render(FizzConfig& config) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    ImGui::TextColored(fizz::theme::Palette::kAccent, "Custom Cache Destination");
+    ImGui::TextColored(fizz::theme::getActiveAccent(), "Custom Cache Destination");
+    ImGui::Spacing();
     ImGui::TextDisabled("Specify an absolute file path or ~/ path for the Binary Cache.");
     ImGui::Spacing();
 
     float availW = ImGui::GetContentRegionAvail().x;
-    float buttonsW = 180.0f;
-    float inputW = std::max(200.0f, availW - buttonsW - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+    float btnApplyW = 85.0f;
+    float btnResetW = 100.0f;
+    float buttonsW = btnApplyW + btnResetW;
+    float inputW = std::max(150.0f, availW - buttonsW - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 
     ImGui::SetNextItemWidth(inputW);
     bool enterPressed = ImGui::InputText("##cache_destination_input", m_inputBuffer, sizeof(m_inputBuffer),
@@ -496,9 +499,9 @@ void CacheTab::render(FizzConfig& config) {
     m_inputPath = m_inputBuffer;
 
     ImGui::SameLine();
-    bool applyClicked = ImGui::Button("Apply##cache", {85.0f, 0});
+    bool applyClicked = ImGui::Button("Apply##cache", {btnApplyW, 0});
     ImGui::SameLine();
-    bool resetClicked = ImGui::Button("Reset Default##cache", {100.0f, 0});
+    bool resetClicked = ImGui::Button("Reset Default##cache", {btnResetW, 0});
 
     if (enterPressed || applyClicked) {
         std::string errMsg;

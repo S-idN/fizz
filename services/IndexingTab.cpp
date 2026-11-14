@@ -519,6 +519,8 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     float availW = ImGui::GetContentRegionAvail().x;
     float availH = ImGui::GetContentRegionAvail().y;
 
+    ImGui::Spacing();
+
     // Status / feedback line
     if (!state.statusMessage.empty()) {
         ImVec4 msgColor = state.isErrorMessage ? theme::Palette::kAmber : theme::Palette::kTagGreen;
@@ -560,7 +562,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     // ==========================================
     // PRESET PROFILES BAR
     // ==========================================
-    ImGui::TextColored(theme::Palette::kAccent, "Presets:");
+    ImGui::TextColored(theme::getActiveAccent(), "Presets:");
 
     auto renderPresetButton = [&](const char* label, PresetType type, int index) {
         ImGui::SameLine();
@@ -614,7 +616,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     // ==========================================
     // SECTION 1: SEARCH ROOTS
     // ==========================================
-    ImGui::TextColored(theme::Palette::kAccent, "Search Roots (%zu)", config.searchRoots.size());
+    ImGui::TextColored(theme::getActiveAccent(), "Search Roots (%zu)", config.searchRoots.size());
     ImGui::SameLine();
     ImGui::TextDisabled("— directories scanned for files and applications");
 
@@ -688,7 +690,7 @@ void renderIndexingTab(IndexingTabState& state, FizzConfig& config, const std::s
     // ==========================================
     // SECTION 2: IGNORE RULES
     // ==========================================
-    ImGui::TextColored(theme::Palette::kAccent, "Ignore Rules (%zu)", config.ignoreRules.size());
+    ImGui::TextColored(theme::getActiveAccent(), "Ignore Rules (%zu)", config.ignoreRules.size());
     ImGui::SameLine();
     ImGui::TextDisabled("— patterns and folders excluded from indexing");
 

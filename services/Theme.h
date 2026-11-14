@@ -69,8 +69,8 @@ struct Metrics {
     static constexpr float kChildBorderSize    = 1.0f;
 
     static constexpr ImVec2 kWindowPadding     = {16.0f, 14.0f};
-    static constexpr ImVec2 kFramePadding      = {10.0f, 8.0f};
-    static constexpr ImVec2 kItemSpacing       = {0.0f, 4.0f};
+    static constexpr ImVec2 kFramePadding      = {10.0f, 7.0f};
+    static constexpr ImVec2 kItemSpacing       = {8.0f, 10.0f};
     static constexpr ImVec2 kItemInnerSpacing  = {6.0f, 4.0f};
 
     static constexpr float kRowHeight          = 24.0f;

@@ -6,6 +6,7 @@
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <cmath>
 #include "services/IndexingTab.h"
 #include "services/Theme.h"
 #include "imgui_internal.h"
@@ -17,6 +18,10 @@
             std::exit(1); \
         } \
     } while (0)
+
+static bool nearEqual(float a, float b, float eps = 0.001f) {
+    return std::fabs(a - b) <= eps;
+}
 
 void test_normalize_search_root() {
     std::cout << "[TEST] Running test_normalize_search_root...\n";
@@ -291,6 +296,14 @@ void test_headless_indexing_tab_rendering() {
 
     fizz::IndexingTab tab;
 
+    fizz::theme::applyTheme(ImGui::GetStyle());
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.x, 8.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.y, 10.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.x, 10.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.y, 7.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FrameRounding, 8.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ChildRounding, 8.0f));
+
     // Frame 1: Normal tab rendering with preset buttons
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
@@ -299,6 +312,12 @@ void test_headless_indexing_tab_rendering() {
     tab.render(config, testConfigPath);
     ImGui::End();
     ImGui::Render();
+
+    // Verify relaxed horizontal spacing between preset buttons (no 0px horizontal spacing)
+    const auto& st1 = tab.getState();
+    for (int p = 1; p < 4; ++p) {
+        INDEXING_TEST_ASSERT(st1.presetButtonMin[p].x >= st1.presetButtonMax[p - 1].x + 8.0f);
+    }
 
     // Frame 2: Preset confirmation modal open
     tab.requestApplyPreset(fizz::PresetType::Minimalist);
@@ -1142,7 +1161,62 @@ void test_dynamic_preset_detection_and_custom_badge_rendering() {
     std::cout << "[PASS] test_dynamic_preset_detection_and_custom_badge_rendering passed.\n";
 }
 
+void test_indexing_tab_relaxed_layout_metrics() {
+    std::cout << "[TEST] Running test_indexing_tab_relaxed_layout_metrics...\n";
+    fs::path testDir = fs::temp_directory_path() / ("fizz_test_indexing_relaxed_" + std::to_string(getpid()));
+    std::error_code ec;
+    fs::remove_all(testDir, ec);
+    fs::create_directories(testDir, ec);
+    chmod(testDir.c_str(), 0700);
+
+    const std::string fakeHome = "/home/testuser";
+    std::string testConfigPath = (testDir / "fizz.conf").string();
+
+    FizzConfig config;
+    config.searchRoots = {"/home/testuser/Documents", "/usr/share/applications"};
+    config.ignoreRules = {".cache", ".git"};
+    INDEXING_TEST_ASSERT(saveConfig(config, testConfigPath));
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    fizz::theme::applyTheme(ImGui::GetStyle());
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.x, 8.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.y, 10.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.x, 10.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.y, 7.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().FrameRounding, 8.0f));
+    INDEXING_TEST_ASSERT(nearEqual(ImGui::GetStyle().ChildRounding, 8.0f));
+
+    fizz::IndexingTab tab;
+    tab.setCustomHome(fakeHome);
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("Settings_Test", nullptr, ImGuiWindowFlags_NoDecoration);
+    tab.render(config, testConfigPath, fakeHome);
+    ImGui::End();
+    ImGui::Render();
+
+    const auto& state = tab.getState();
+    for (int p = 1; p < 4; ++p) {
+        // Assert positive spacing >= 8px between consecutive preset buttons (no 0px horizontal spacing)
+        INDEXING_TEST_ASSERT(state.presetButtonMin[p].x >= state.presetButtonMax[p - 1].x + 8.0f);
+    }
+
+    ImGui::DestroyContext(ctx);
+    fs::remove_all(testDir, ec);
+    std::cout << "[PASS] test_indexing_tab_relaxed_layout_metrics passed.\n";
+}
+
 void run_indexing_tab_tests() {
+    test_indexing_tab_relaxed_layout_metrics();
     test_normalize_search_root();
     test_normalize_ignore_rule();
     test_preset_profile_contents();

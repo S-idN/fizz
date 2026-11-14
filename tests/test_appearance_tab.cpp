@@ -329,6 +329,12 @@ void test_appearance_headless_ui_rendering() {
 
     FizzConfig config = FizzConfig::defaults();
     fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.x, 8.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.y, 10.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.x, 10.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.y, 7.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FrameRounding, 8.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ChildRounding, 8.0f));
 
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
@@ -1465,12 +1471,48 @@ void test_appearance_font_selection_via_combo_box_and_no_custom_input() {
     std::cout << "[PASS] test_appearance_font_selection_via_combo_box_and_no_custom_input passed.\n";
 }
 
+void test_appearance_tab_relaxed_layout_metrics() {
+    std::cout << "[TEST] Running test_appearance_tab_relaxed_layout_metrics...\n";
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(750.0f, 480.0f);
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    FizzConfig config = FizzConfig::defaults();
+    fizz::theme::applyTheme(ImGui::GetStyle(), config.theme, config.accent);
+
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.x, 8.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.y, 10.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.x, 10.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.y, 7.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().FrameRounding, 8.0f));
+    APPEARANCE_TEST_ASSERT(nearEqual(ImGui::GetStyle().ChildRounding, 8.0f));
+
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::Begin("layout_metrics_test_window", nullptr, ImGuiWindowFlags_NoDecoration);
+
+    fizz::ui::renderAppearanceTab(config);
+
+    ImGui::End();
+    ImGui::Render();
+
+    ImGui::DestroyContext(ctx);
+    std::cout << "[PASS] test_appearance_tab_relaxed_layout_metrics passed.\n";
+}
+
 void run_appearance_tab_tests() {
     test_appearance_theme_options_and_selection();
     test_appearance_curated_accent_palette();
     test_appearance_live_imgui_style_application();
     test_appearance_atomic_config_persistence();
     test_appearance_headless_ui_rendering();
+    test_appearance_tab_relaxed_layout_metrics();
     test_appearance_window_geometry_clamping_and_callbacks();
     test_appearance_window_size_presets();
     test_appearance_live_resize_centering();

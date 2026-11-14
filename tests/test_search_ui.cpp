@@ -387,6 +387,14 @@ void test_headless_ui_rendering() {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(750.0f, 480.0f);
 
+    fizz::theme::applyTheme(ImGui::GetStyle());
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.x, 8.0f));
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().ItemSpacing.y, 10.0f));
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.x, 10.0f));
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().FramePadding.y, 7.0f));
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().FrameRounding, 8.0f));
+    UI_TEST_ASSERT(nearEqual(ImGui::GetStyle().ChildRounding, 8.0f));
+
     unsigned char* pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -399,6 +407,11 @@ void test_headless_ui_rendering() {
     char searchBuf[256] = "";
     bool changed = fizz::ui::renderSearchPill(searchBuf, sizeof(searchBuf), fizz::ui::kDefaultPlaceholderText, true);
     UI_TEST_ASSERT(!changed);
+
+    // Verify footer layout uses relaxed item spacing y
+    auto footerLayout = fizz::ui::calculateFooterLayout(fizz::ui::Metrics::kFooterHeight, ImGui::GetStyle().ItemSpacing.y);
+    UI_TEST_ASSERT(nearEqual(footerLayout.reservedBottomSpace, fizz::ui::Metrics::kFooterHeight + 10.0f));
+    UI_TEST_ASSERT(nearEqual(footerLayout.reservedChildHeight, -(fizz::ui::Metrics::kFooterHeight + 10.0f)));
 
     // Render with 0 hits
     fizz::ui::renderStatusFooter(0, "");

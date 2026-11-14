@@ -50,9 +50,9 @@ void test_theme_soft_rounding_metrics() {
     THEME_TEST_ASSERT(nearEqual(style.WindowPadding.x, 16.0f));
     THEME_TEST_ASSERT(nearEqual(style.WindowPadding.y, 14.0f));
     THEME_TEST_ASSERT(nearEqual(style.FramePadding.x, 10.0f));
-    THEME_TEST_ASSERT(nearEqual(style.FramePadding.y, 8.0f));
-    THEME_TEST_ASSERT(nearEqual(style.ItemSpacing.x, 0.0f));
-    THEME_TEST_ASSERT(nearEqual(style.ItemSpacing.y, 4.0f));
+    THEME_TEST_ASSERT(nearEqual(style.FramePadding.y, 7.0f));
+    THEME_TEST_ASSERT(nearEqual(style.ItemSpacing.x, 8.0f));
+    THEME_TEST_ASSERT(nearEqual(style.ItemSpacing.y, 10.0f));
 
     std::cout << "[PASS] test_theme_soft_rounding_metrics passed.\n";
 }
@@ -198,8 +198,35 @@ void test_theme_curated_accents_and_normalization() {
     std::cout << "[PASS] test_theme_curated_accents_and_normalization passed.\n";
 }
 
+void test_theme_modern_layout_metrics() {
+    std::cout << "[TEST] Running test_theme_modern_layout_metrics...\n";
+
+    // 1. Verify relaxed item spacing design tokens (ticket #60)
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kItemSpacing.x, 8.0f));
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kItemSpacing.y, 10.0f));
+
+    // Must eliminate cramped 0px horizontal spacing
+    THEME_TEST_ASSERT(fizz::theme::Metrics::kItemSpacing.x > 0.0f);
+    THEME_TEST_ASSERT(fizz::theme::Metrics::kItemSpacing.y >= 8.0f);
+
+    // 2. Comfortable frame padding
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kFramePadding.x, 10.0f));
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kFramePadding.y, 7.0f));
+
+    // 3. Soft consistent rounding for buttons, input frames, combo boxes, and child panels
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kFrameRounding, 8.0f));
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kChildRounding, 8.0f));
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kPopupRounding, 8.0f));
+
+    // 4. Border consistency
+    THEME_TEST_ASSERT(nearEqual(fizz::theme::Metrics::kChildBorderSize, 1.0f));
+
+    std::cout << "[PASS] test_theme_modern_layout_metrics passed.\n";
+}
+
 void run_theme_tests() {
     test_theme_soft_rounding_metrics();
+    test_theme_modern_layout_metrics();
     test_theme_with_alpha();
     test_theme_adwaita_palette_colors();
     test_theme_indicator_geometry();
