@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(fizz VERSION 1.0.0 LANGUAGES CXX)
+project(fizz VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,10 +12,15 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 find_package(glfw3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
+find_package(Fontconfig REQUIRED)
 
 set(SERVICES_SOURCES
+    services/AboutView.cpp
+    services/AppearanceTab.cpp
     services/AppLauncher.cpp
+    services/CacheTab.cpp
     services/Config.cpp
+    services/DaemonClient.cpp
     services/FileSearch.cpp
     services/FocusTracker.cpp
     services/FontDiscovery.cpp
@@ -23,19 +28,24 @@ set(SERVICES_SOURCES
     services/QueryOps.cpp
     services/Theme.cpp
     services/SearchUi.cpp
+    services/ViewMode.cpp
+    services/ViewState.cpp
+    services/BuiltinActions.cpp
+    services/IndexingTab.cpp
+    services/GeneralTab.cpp
 )
 
 set(IMGUI_CORE_SOURCES
-    imgui/imgui.cpp
-    imgui/imgui_draw.cpp
-    imgui/imgui_tables.cpp
-    imgui/imgui_widgets.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
 )
 
 set(IMGUI_SOURCES
     ${IMGUI_CORE_SOURCES}
-    imgui/imgui_impl_glfw.cpp
-    imgui/imgui_impl_opengl3.cpp
+    vendor/imgui/imgui_impl_glfw.cpp
+    vendor/imgui/imgui_impl_opengl3.cpp
 )
 
 add_executable(main_gui main_gui.cpp ${SERVICES_SOURCES} ${IMGUI_SOURCES})
@@ -43,13 +53,15 @@ add_executable(main_gui main_gui.cpp ${SERVICES_SOURCES} ${IMGUI_SOURCES})
 target_include_directories(main_gui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
-    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/iconfontheaders
 )
 
 target_link_libraries(main_gui PRIVATE
     glfw
     OpenGL::GL
     Threads::Threads
+    Fontconfig::Fontconfig
 )
 
 target_compile_options(main_gui PRIVATE -O2)
@@ -60,6 +72,7 @@ add_executable(fizzd
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
+    services/Theme.cpp
 )
 
 target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
@@ -67,6 +80,7 @@ target_compile_definitions(fizzd PRIVATE FIZZD_MAIN)
 target_include_directories(fizzd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
 )
 
 target_link_libraries(fizzd PRIVATE Threads::Threads)
@@ -74,6 +88,7 @@ target_link_options(fizzd PRIVATE -s)
 
 add_executable(fizz_tests
     tests/test_main.cpp
+    tests/test_about_view.cpp
     tests/test_binary_cache.cpp
     tests/test_config.cpp
     tests/test_app_launcher.cpp
@@ -82,6 +97,18 @@ add_executable(fizz_tests
     tests/test_theme.cpp
     tests/test_search_ui.cpp
     tests/test_file_cache_builder.cpp
+    tests/test_view_mode.cpp
+    tests/test_cache_tab.cpp
+    tests/test_view_state.cpp
+    tests/test_builtin_actions.cpp
+    tests/test_appearance_tab.cpp
+    tests/test_indexing_tab.cpp
+    tests/test_general_tab.cpp
+    tests/test_daemon_client.cpp
+    services/DaemonClient.cpp
+    services/CacheTab.cpp
+    services/AppearanceTab.cpp
+    services/AboutView.cpp
     services/Config.cpp
     services/FileCacheBuilder.cpp
     services/FileSearch.cpp
@@ -92,16 +119,25 @@ add_executable(fizz_tests
     services/QueryOps.cpp
     services/Theme.cpp
     services/SearchUi.cpp
+    services/ViewMode.cpp
+    services/ViewState.cpp
+    services/BuiltinActions.cpp
+    services/IndexingTab.cpp
+    services/GeneralTab.cpp
     ${IMGUI_CORE_SOURCES}
 )
 
 target_include_directories(fizz_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/services
-    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/iconfontheaders
 )
 
-target_link_libraries(fizz_tests PRIVATE Threads::Threads)
+target_link_libraries(fizz_tests PRIVATE
+    Threads::Threads
+    Fontconfig::Fontconfig
+)
 
 enable_testing()
 add_test(NAME fizz_tests COMMAND fizz_tests)
@@ -119,3 +155,4 @@ if(FIZZ_INSTALLER_TESTS)
 endif()
 
 install(TARGETS fizzd main_gui RUNTIME DESTINATION bin)
+install(DIRECTORY assets/ DESTINATION share/fizz/assets)

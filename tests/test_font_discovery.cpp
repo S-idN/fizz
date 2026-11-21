@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
+#include <cstring>
+#include <strings.h>
+#include <unistd.h>
 #include "services/FontDiscovery.h"
 
 namespace fs = std::filesystem;
@@ -197,9 +201,280 @@ void test_host_system_font_discovery() {
     std::cout << "[PASS] test_host_system_font_discovery passed.\n";
 }
 
+void test_discovered_system_fonts_families() {
+    std::cout << "[TEST] Running test_discovered_system_fonts_families...\n";
+
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_font_families";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
+
+    // Initial check: empty directory
+    auto fontsEmpty = getDiscoveredSystemFonts(tempRoot.string());
+    FONT_TEST_ASSERT(fontsEmpty.size() >= 6);
+    FONT_TEST_ASSERT(fontsEmpty[0].familyName.find("Default") != std::string::npos);
+    FONT_TEST_ASSERT(fontsEmpty[0].available);
+    for (size_t i = 1; i < fontsEmpty.size(); ++i) {
+        FONT_TEST_ASSERT(!fontsEmpty[i].available);
+        FONT_TEST_ASSERT(fontsEmpty[i].path.empty());
+    }
+
+    // Populate Cantarell and JetBrains Mono
+    fs::path cantarellPath = tempRoot / "usr/share/fonts/cantarell/Cantarell-Regular.otf";
+    fs::path jbPath = tempRoot / "usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-Regular.ttf";
+    createDummyFile(cantarellPath);
+    createDummyFile(jbPath);
+
+    auto fontsPopulated = getDiscoveredSystemFonts(tempRoot.string());
+    bool foundCantarell = false;
+    bool foundJb = false;
+    bool adwaitaAvailable = false;
+
+    for (const auto& f : fontsPopulated) {
+        if (f.familyName == "Cantarell") {
+            FONT_TEST_ASSERT(f.available);
+            FONT_TEST_ASSERT(f.path == cantarellPath.lexically_normal().string());
+            foundCantarell = true;
+        } else if (f.familyName == "JetBrains Mono") {
+            FONT_TEST_ASSERT(f.available);
+            FONT_TEST_ASSERT(f.path == jbPath.lexically_normal().string());
+            foundJb = true;
+        } else if (f.familyName == "Adwaita Sans") {
+            adwaitaAvailable = f.available;
+        }
+    }
+
+    FONT_TEST_ASSERT(foundCantarell);
+    FONT_TEST_ASSERT(foundJb);
+    FONT_TEST_ASSERT(!adwaitaAvailable);
+
+    fs::remove_all(tempRoot, ec);
+    std::cout << "[PASS] test_discovered_system_fonts_families passed.\n";
+}
+
+void test_bundled_space_grotesk_default_resolution() {
+    std::cout << "[TEST] Running test_bundled_space_grotesk_default_resolution...\n";
+
+    // 1. resolveAssetFile directly
+    std::string assetPath = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!assetPath.empty());
+    FONT_TEST_ASSERT(fs::exists(assetPath));
+    FONT_TEST_ASSERT(access(assetPath.c_str(), R_OK) == 0);
+    FONT_TEST_ASSERT(assetPath.find("SpaceGrotesk-VariableFont_wght.ttf") != std::string::npos);
+
+    // 2. getDiscoveredSystemFonts() has Space Grotesk (Bundled Default) at index 0
+    auto fonts = getDiscoveredSystemFonts();
+    FONT_TEST_ASSERT(!fonts.empty());
+    FONT_TEST_ASSERT(fonts[0].familyName == "Space Grotesk (Bundled Default)");
+    FONT_TEST_ASSERT(fonts[0].available);
+    FONT_TEST_ASSERT(!fonts[0].path.empty());
+    FONT_TEST_ASSERT(access(fonts[0].path.c_str(), R_OK) == 0);
+    FONT_TEST_ASSERT(fonts[0].path.find("SpaceGrotesk-VariableFont_wght.ttf") != std::string::npos);
+
+    // 3. Fallback when asset file does not exist
+    std::string missing = resolveAssetFile("non_existent_asset_file.ttf");
+    FONT_TEST_ASSERT(missing.empty());
+
+    // 4. Custom root resolution
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_asset_resolution";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::path mockFont = tempRoot / "assets/fonts/SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(mockFont);
+
+    std::string customAsset = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf", tempRoot.string());
+    FONT_TEST_ASSERT(!customAsset.empty());
+    FONT_TEST_ASSERT(customAsset == mockFont.lexically_normal().string());
+
+    auto customFonts = getDiscoveredSystemFonts(tempRoot.string());
+    FONT_TEST_ASSERT(!customFonts.empty());
+    FONT_TEST_ASSERT(customFonts[0].familyName == "Space Grotesk (Bundled Default)");
+    FONT_TEST_ASSERT(customFonts[0].available);
+    FONT_TEST_ASSERT(customFonts[0].path == mockFont.lexically_normal().string());
+
+    fs::remove_all(tempRoot, ec);
+    std::cout << "[PASS] test_bundled_space_grotesk_default_resolution passed.\n";
+}
+
+void test_fontconfig_enumeration_and_scalable_filtering() {
+    std::cout << "[TEST] Running test_fontconfig_enumeration_and_scalable_filtering...\n";
+
+    auto fonts = getDiscoveredSystemFonts();
+    FONT_TEST_ASSERT(!fonts.empty());
+    FONT_TEST_ASSERT(fonts[0].familyName == "Space Grotesk (Bundled Default)");
+
+    // System fonts enumerated from Fontconfig (on Linux host with fonts installed)
+    FONT_TEST_ASSERT(fonts.size() > 1);
+
+    for (size_t i = 1; i < fonts.size(); ++i) {
+        const auto& f = fonts[i];
+        FONT_TEST_ASSERT(!f.familyName.empty());
+        FONT_TEST_ASSERT(!f.path.empty());
+        FONT_TEST_ASSERT(f.available);
+        FONT_TEST_ASSERT(access(f.path.c_str(), R_OK) == 0);
+        // scalable check: verify file extension is typically ttf, otf, or ttc
+        std::string ext = fs::path(f.path).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+            return std::tolower(c);
+        });
+        FONT_TEST_ASSERT(ext == ".ttf" || ext == ".otf" || ext == ".ttc" || ext == ".woff" || ext == ".woff2");
+    }
+
+    std::cout << "[PASS] test_fontconfig_enumeration_and_scalable_filtering passed.\n";
+}
+
+void test_fontconfig_deduplication() {
+    std::cout << "[TEST] Running test_fontconfig_deduplication...\n";
+
+    auto fonts = getDiscoveredSystemFonts();
+    FONT_TEST_ASSERT(fonts.size() > 1);
+
+    std::unordered_set<std::string> seenFamilies;
+    for (size_t i = 1; i < fonts.size(); ++i) {
+        std::string lowerName = fonts[i].familyName;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), [](unsigned char c) {
+            return std::tolower(c);
+        });
+
+        bool inserted = seenFamilies.insert(lowerName).second;
+        if (!inserted) {
+            std::cerr << "Duplicate font family found: " << fonts[i].familyName << "\n";
+        }
+        FONT_TEST_ASSERT(inserted);
+    }
+
+    std::cout << "[PASS] test_fontconfig_deduplication passed.\n";
+}
+
+void test_fontconfig_alphabetical_sorting() {
+    std::cout << "[TEST] Running test_fontconfig_alphabetical_sorting...\n";
+
+    auto fonts = getDiscoveredSystemFonts();
+    FONT_TEST_ASSERT(fonts.size() > 1);
+
+    // Index 0 is always Space Grotesk (Bundled Default)
+    FONT_TEST_ASSERT(fonts[0].familyName == "Space Grotesk (Bundled Default)");
+
+    // System fonts (index 1 to N-1) must be sorted case-insensitively
+    for (size_t i = 1; i + 1 < fonts.size(); ++i) {
+        int cmp = strcasecmp(fonts[i].familyName.c_str(), fonts[i + 1].familyName.c_str());
+        if (cmp > 0) {
+            std::cerr << "Sorting violation: '" << fonts[i].familyName << "' came before '" << fonts[i + 1].familyName << "'\n";
+        }
+        FONT_TEST_ASSERT(cmp <= 0);
+    }
+
+    std::cout << "[PASS] test_fontconfig_alphabetical_sorting passed.\n";
+}
+
+void test_xdg_asset_resolution() {
+    std::cout << "[TEST] Running test_xdg_asset_resolution...\n";
+
+    fs::path tempRoot = fs::temp_directory_path() / "fizz_test_xdg_assets";
+    std::error_code ec;
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot, ec);
+
+    // Save previous env vars
+    const char* prevFizzData = std::getenv("FIZZ_DATA_DIR");
+    std::string savedFizzData = prevFizzData ? prevFizzData : "";
+    const char* prevXdgData = std::getenv("XDG_DATA_HOME");
+    std::string savedXdgData = prevXdgData ? prevXdgData : "";
+    const char* prevHome = std::getenv("HOME");
+    std::string savedHome = prevHome ? prevHome : "";
+
+    auto restoreEnv = [&]() {
+        if (!savedFizzData.empty()) setenv("FIZZ_DATA_DIR", savedFizzData.c_str(), 1);
+        else unsetenv("FIZZ_DATA_DIR");
+        if (!savedXdgData.empty()) setenv("XDG_DATA_HOME", savedXdgData.c_str(), 1);
+        else unsetenv("XDG_DATA_HOME");
+        if (!savedHome.empty()) setenv("HOME", savedHome.c_str(), 1);
+        else unsetenv("HOME");
+    };
+
+    // 1. Test FIZZ_DATA_DIR override
+    fs::path customData = tempRoot / "custom_data";
+    fs::path customFont = customData / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(customFont);
+
+    setenv("FIZZ_DATA_DIR", customData.c_str(), 1);
+    unsetenv("XDG_DATA_HOME");
+
+    // Must resolve with leading "assets/"
+    std::string res1 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res1.empty());
+    FONT_TEST_ASSERT(res1 == customFont.lexically_normal().string());
+
+    // Must resolve without leading "assets/"
+    std::string res2 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res2.empty());
+    FONT_TEST_ASSERT(res2 == customFont.lexically_normal().string());
+
+    // Non-existent asset in FIZZ_DATA_DIR returns empty
+    std::string resMissing = resolveAssetFile("assets/icons/NonExistent.otf");
+    FONT_TEST_ASSERT(resMissing.empty());
+
+    // 2. Test XDG_DATA_HOME override
+    unsetenv("FIZZ_DATA_DIR");
+    fs::path xdgRoot = tempRoot / "xdg_home";
+    fs::path xdgFont = xdgRoot / "fizz" / "assets" / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(xdgFont);
+
+    setenv("XDG_DATA_HOME", xdgRoot.c_str(), 1);
+
+    std::string res3 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res3.empty());
+    FONT_TEST_ASSERT(res3 == xdgFont.lexically_normal().string());
+
+    std::string res4 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res4.empty());
+    FONT_TEST_ASSERT(res4 == xdgFont.lexically_normal().string());
+
+    // Also supports XDG_DATA_HOME/fizz layout
+    fs::path xdgRoot2 = tempRoot / "xdg_home2";
+    fs::path xdgFont2 = xdgRoot2 / "fizz" / "assets" / "icons" / "Font Awesome 7 Free-Solid-900.otf";
+    createDummyFile(xdgFont2);
+    setenv("XDG_DATA_HOME", xdgRoot2.c_str(), 1);
+
+    std::string resIcon = resolveAssetFile("assets/icons/Font Awesome 7 Free-Solid-900.otf");
+    FONT_TEST_ASSERT(!resIcon.empty());
+    FONT_TEST_ASSERT(resIcon == xdgFont2.lexically_normal().string());
+
+    // 3. Test ~/.local/share fallback via HOME
+    unsetenv("XDG_DATA_HOME");
+    fs::path homeRoot = tempRoot / "user_home";
+    fs::path localShareFont = homeRoot / ".local" / "share" / "fizz" / "assets" / "fonts" / "SpaceGrotesk-VariableFont_wght.ttf";
+    createDummyFile(localShareFont);
+    setenv("HOME", homeRoot.c_str(), 1);
+
+    std::string res5 = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res5.empty());
+    FONT_TEST_ASSERT(res5 == localShareFont.lexically_normal().string());
+
+    std::string res6 = resolveAssetFile("fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(!res6.empty());
+    FONT_TEST_ASSERT(res6 == localShareFont.lexically_normal().string());
+
+    // 4. Test precedence: FIZZ_DATA_DIR beats XDG_DATA_HOME and ~/.local/share
+    setenv("FIZZ_DATA_DIR", customData.c_str(), 1);
+    setenv("XDG_DATA_HOME", xdgRoot.c_str(), 1);
+    std::string resPrec = resolveAssetFile("assets/fonts/SpaceGrotesk-VariableFont_wght.ttf");
+    FONT_TEST_ASSERT(resPrec == customFont.lexically_normal().string());
+
+    restoreEnv();
+    fs::remove_all(tempRoot, ec);
+    std::cout << "[PASS] test_xdg_asset_resolution passed.\n";
+}
+
 void run_font_discovery_tests() {
     test_candidate_generation();
     test_cascade_priority();
     test_sandboxed_distro_filesystem_discovery();
     test_host_system_font_discovery();
+    test_bundled_space_grotesk_default_resolution();
+    test_xdg_asset_resolution();
+    test_fontconfig_enumeration_and_scalable_filtering();
+    test_fontconfig_deduplication();
+    test_fontconfig_alphabetical_sorting();
+    test_discovered_system_fonts_families();
 }

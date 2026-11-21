@@ -6,8 +6,39 @@
 #include "imgui.h"
 #include "FileSearch.h"
 #include "Theme.h"
+#include "IconsFontAwesome7.h"
 
 namespace fizz::ui {
+
+// Controls whether icon font is treated as unavailable for unit test simulation
+void setIconFontSuppressedForTesting(bool suppressed);
+bool isIconFontSuppressedForTesting();
+
+// Returns true if Font Awesome glyphs were merged into the active font and icons are not suppressed
+bool isIconFontAvailable();
+
+// Label helper functions for Settings tabs with clean text degradation
+const char* getGeneralTabLabel();
+const char* getAppearanceTabLabel();
+const char* getIndexingTabLabel();
+const char* getCacheTabLabel();
+
+// Return navigation button label with clean text degradation
+const char* getViewHeaderReturnLabel();
+
+// Search input prompt indicator with clean text degradation
+const char* getSearchPromptIndicator();
+inline const char* getSearchPromptLabel() { return getSearchPromptIndicator(); }
+
+// Category badge label formatting helper with clean text degradation
+const char* getCategoryBadgeLabel(std::string_view category);
+
+// Action button labels with clean text degradation
+const char* getRebuildCacheButtonLabel();
+const char* getResetDefaultsButtonLabel();
+const char* getCacheResetDefaultButtonLabel();
+const char* getAddRootButtonLabel();
+const char* getBrowseRootButtonLabel();
 
 // Category badge representation with high-contrast palette color
 struct CategoryBadge {
@@ -17,6 +48,9 @@ struct CategoryBadge {
 
 // Default search input placeholder hint text
 constexpr std::string_view kDefaultPlaceholderText = "Search files and apps...";
+
+// Default back button navigation label for Settings and About view headers
+constexpr std::string_view kBackToSearchLabel = "Esc";
 
 // Layout and sizing metrics for modern UI components
 struct Metrics {
@@ -33,6 +67,12 @@ struct Metrics {
     static constexpr float kBadgeSpacing       = 8.0f;
     static constexpr float kBadgeRounding      = 9.0f;
     static constexpr float kFileNameDirSpacing = 16.0f;
+    static constexpr float kHeaderHeight       = 38.0f;
+    static constexpr float kHeaderPaddingX     = 12.0f;
+    static constexpr float kBackBtnPaddingX    = 10.0f;
+    static constexpr float kBackBtnPaddingY    = 5.0f;
+    static constexpr float kBackBtnRounding    = 6.0f;
+    static constexpr float kHeaderTitleSpacing = 16.0f;
 };
 
 // Geometry bounds and positioning for category badge pill
@@ -82,7 +122,108 @@ struct FooterLayout {
     float reservedChildHeight; // Negative height offset for BeginChild
 };
 
-// Calculates geometry for the integrated search pill container, prompt, and input box
+// Geometry bounds and positioning for in-app view header (Settings, About)
+struct ViewHeaderGeometry {
+    ImVec2 headerMin;
+    ImVec2 headerMax;
+    float headerHeight;
+    ImVec2 backButtonMin;
+    ImVec2 backButtonMax;
+    ImVec2 backButtonTextPos;
+    float backButtonWidth;
+    float backButtonHeight;
+    ImVec2 titlePos;
+    float titleWidth;
+    float separatorY;
+};
+
+// Calculates layout geometry for in-app view header container, "← Back to Search" button, and view title
+template<typename MeasureFn>
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title, MeasureFn&& measureFn,
+                                             float headerHeight = Metrics::kHeaderHeight,
+                                             float fontSize = 16.0f,
+                                             std::string_view backLabel = "") {
+    float hHeight = std::max(0.0f, headerHeight);
+    float w = std::max(0.0f, width);
+    ImVec2 headerMin = origin;
+    ImVec2 headerMax = {origin.x + w, origin.y + hHeight};
+
+    std::string_view effectiveBack = backLabel.empty() ? getViewHeaderReturnLabel() : backLabel;
+
+    float backTextW = measureFn(effectiveBack);
+    float backBtnW = backTextW + 2.0f * Metrics::kBackBtnPaddingX;
+    float backBtnH = fontSize + 2.0f * Metrics::kBackBtnPaddingY;
+
+    float backBtnX = headerMin.x + Metrics::kHeaderPaddingX;
+    float backBtnY = headerMin.y + (hHeight - backBtnH) * 0.5f;
+
+    ImVec2 backButtonMin = {backBtnX, backBtnY};
+    ImVec2 backButtonMax = {backBtnX + backBtnW, backBtnY + backBtnH};
+    ImVec2 backButtonTextPos = {backBtnX + Metrics::kBackBtnPaddingX, backBtnY + Metrics::kBackBtnPaddingY};
+
+    float titleW = measureFn(title);
+    float titleX = backButtonMax.x + Metrics::kHeaderTitleSpacing;
+    float titleY = headerMin.y + (hHeight - fontSize) * 0.5f;
+    ImVec2 titlePos = {titleX, titleY};
+
+    float separatorY = headerMax.y;
+
+    return ViewHeaderGeometry{
+        headerMin,
+        headerMax,
+        hHeight,
+        backButtonMin,
+        backButtonMax,
+        backButtonTextPos,
+        backBtnW,
+        backBtnH,
+        titlePos,
+        titleW,
+        separatorY
+    };
+}
+
+// Calculates in-app view header layout using default ImGui text measurement
+ViewHeaderGeometry calculateViewHeaderLayout(const ImVec2& origin, float width,
+                                             std::string_view title,
+                                             float headerHeight = Metrics::kHeaderHeight,
+                                             float fontSize = 16.0f,
+                                             std::string_view backLabel = "");
+
+// Calculates geometry for the integrated search pill container, prompt, and input box dynamically
+template<typename MeasureFn>
+SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height,
+                                              MeasureFn&& measureFn, float fontSize = 16.0f) {
+    float pillW = std::max(0.0f, width);
+    float pillH = std::max(0.0f, height);
+    ImVec2 pillMin = origin;
+    ImVec2 pillMax = {origin.x + pillW, origin.y + pillH};
+
+    float promptX = pillMin.x + Metrics::kSearchPillPaddingX;
+    float promptY = pillMin.y + (pillH - fontSize) * 0.5f;
+
+    const char* prompt = getSearchPromptIndicator();
+    float promptW = measureFn(prompt);
+    if (promptW <= 0.0f) {
+        promptW = Metrics::kPromptGlyphWidth;
+    }
+
+    float inputX = promptX + promptW + Metrics::kPromptSpacing;
+    float inputY = pillMin.y;
+    float inputW = std::max(0.0f, pillMax.x - Metrics::kSearchPillPaddingX - inputX);
+
+    return SearchPillGeometry{
+        pillMin,
+        pillMax,
+        Metrics::kSearchPillRounding,
+        ImVec2(promptX, promptY),
+        ImVec2(inputX, inputY),
+        inputW
+    };
+}
+
+// Calculates geometry for the integrated search pill container, prompt, and input box using default text measurement
 SearchPillGeometry calculateSearchPillGeometry(const ImVec2& origin, float width, float height, float fontSize = 16.0f);
 
 // Formats search hit count string (e.g. "0 hits", "1 hit", "12 hits")
@@ -95,7 +236,7 @@ const std::vector<ShortcutItem>& getNavigationShortcuts();
 const ImWchar* getUiGlyphRanges();
 
 // Calculates layout dimensions for pinning the status footer cleanly below the search hits list
-FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing = 4.0f);
+FooterLayout calculateFooterLayout(float footerHeight, float separatorSpacing = 10.0f);
 
 // Calculates geometry for compact rounded pill badge on row right edge
 BadgeGeometry calculateBadgeGeometry(const ImVec2& rowMin, const ImVec2& rowMax, float textWidth, float fontSize = 16.0f);
@@ -275,5 +416,9 @@ bool renderSearchPill(char* buf, size_t bufSize, std::string_view placeholder = 
 
 // Renders the pinned status footer at window bottom with search hit count and keyboard shortcuts
 void renderStatusFooter(int hitCount, std::string_view warningMsg = "");
+
+// Renders the in-app view header with return button and view title
+// Returns true when the return button is clicked
+bool renderViewHeader(std::string_view title, std::string_view backLabel = "");
 
 } // namespace fizz::ui

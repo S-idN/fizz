@@ -11,6 +11,10 @@ bool FocusTracker::autoCloseOnUnfocus() const {
     return m_autoCloseOnUnfocus;
 }
 
+void FocusTracker::setAutoCloseOnUnfocus(bool enabled) {
+    m_autoCloseOnUnfocus = enabled;
+}
+
 bool FocusTracker::handleFocusChange(bool focused) {
     if (focused) {
         m_armed = true;

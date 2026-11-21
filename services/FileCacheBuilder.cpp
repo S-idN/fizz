@@ -24,6 +24,37 @@ constexpr auto kQuiet    = 2s;
 constexpr auto kMaxDefer = 10s;  
 
 static volatile sig_atomic_t gStop = 0;
+static volatile sig_atomic_t g_RebuildRequested = 0;
+
+void setRebuildRequested(bool requested) {
+    g_RebuildRequested = requested ? 1 : 0;
+}
+
+bool isRebuildRequested() {
+    return g_RebuildRequested != 0;
+}
+
+static void onUsr1(int) {
+    g_RebuildRequested = 1;
+}
+
+static void onSignal(int) {
+    gStop = 1;
+    setSearchInterrupted(true);
+}
+
+void installDaemonSignalHandlers() {
+    struct sigaction saTerm;
+    std::memset(&saTerm, 0, sizeof(saTerm));
+    saTerm.sa_handler = onSignal;
+    sigaction(SIGTERM, &saTerm, nullptr);
+    sigaction(SIGINT,  &saTerm, nullptr);
+
+    struct sigaction saUsr1;
+    std::memset(&saUsr1, 0, sizeof(saUsr1));
+    saUsr1.sa_handler = onUsr1;
+    sigaction(SIGUSR1, &saUsr1, nullptr);
+}
 
 static int inoFd = -1;                                
 static std::unordered_map<int, std::string> dirOf;   
@@ -66,6 +97,11 @@ int watchDir(int fd, const std::string& dir, std::unordered_map<int, std::string
             std::cerr << "[WARNING] inotify_add_watch failed for '" << dir << "': "
                       << "kernel watch limit reached (ENOSPC). "
                       << "Increase limit with 'sysctl fs.inotify.max_user_watches'.\n";
+            std::string rtDir = getUserRuntimeDir();
+            if (!rtDir.empty()) {
+                int wlFd = open((rtDir + "/fizzd.watch_limit").c_str(), O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
+                if (wlFd >= 0) close(wlFd);
+            }
         }
     }
     return wd;
@@ -151,11 +187,16 @@ int acquireDaemonLock(const std::string& customRuntimeDir) {
         close(fd);
         return -1;
     }
+    std::string pidStr = std::to_string(getpid()) + "\n";
+    if (ftruncate(fd, 0) == 0) {
+        (void)pwrite(fd, pidStr.data(), pidStr.size(), 0);
+    }
     return fd;
 }
 
 void releaseDaemonLock(int& fd) {
     if (fd >= 0) {
+        ftruncate(fd, 0);
         flock(fd, LOCK_UN);
         close(fd);
         fd = -1;
@@ -168,6 +209,8 @@ static void runDaemon() {
 
     auto existingRoots = resolveSearchRoots(config.searchRoots);
     if (existingRoots.empty()) return;
+
+    installDaemonSignalHandlers();
 
     inoFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     for (const auto& root : existingRoots) {
@@ -187,7 +230,17 @@ static void runDaemon() {
         }
 
         auto now = Clock::now();
-        if (scheduler.shouldRebuild(now)) {
+        if (g_RebuildRequested) {
+            g_RebuildRequested = 0;
+            if (gOverflowOccurred) {
+                for (const auto& root : existingRoots) {
+                    watchTree(root);
+                }
+                gOverflowOccurred = false;
+            }
+            rebuildCache();
+            scheduler.onRebuildExecuted(Clock::now());
+        } else if (scheduler.shouldRebuild(now)) {
             if (gOverflowOccurred) {
                 for (const auto& root : existingRoots) {
                     watchTree(root);
@@ -217,14 +270,8 @@ void daemonRunner() {
 }
 
 #ifdef FIZZD_MAIN
-static void onSignal(int) {
-    gStop = 1;
-    setSearchInterrupted(true);
-}
-
 int main() {
-    signal(SIGTERM, onSignal);
-    signal(SIGINT,  onSignal);
+    installDaemonSignalHandlers();
     daemonRunner();
     return 0;
 }
